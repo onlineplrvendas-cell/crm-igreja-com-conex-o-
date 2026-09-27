@@ -108,5 +108,13 @@ service cloud.firestore {
 
       allow delete: if isSystemAdmin();
     }
+
+    // Weekly Confirmations Collection
+    match /weekly_confirmations/{reportId} {
+      allow get, list: if isSignedIn() && isStaffMember();
+      allow create, update: if isSignedIn() && isStaffMember();
+      allow delete: if isSystemAdmin();
+    }
   }
 }
+

@@ -9,6 +9,7 @@ import {
   ConexaoTeamGoal,
   ConexaoMonthlyResult,
   CongregationFilter,
+  ConexaoFunnelStage,
 } from '../types';
 import {
   CONEXAO_COLORS,
@@ -22,6 +23,9 @@ import { ConexaoParticipantModal } from '../components/ConexaoParticipantModal';
 import { ConexaoColorReportModal } from '../components/ConexaoColorReportModal';
 import { ConexaoGoalModal } from '../components/ConexaoGoalModal';
 import { EnrollConexaoModal } from '../components/EnrollConexaoModal';
+import { ConexaoFunnelKanban } from '../components/ConexaoFunnelKanban';
+import { ConexaoFunnelChart } from '../components/ConexaoFunnelChart';
+import { ConexaoInteractionModal, FUNNEL_STAGES } from '../components/ConexaoInteractionModal';
 import { formatDateBR } from '../utils/date';
 import { getWhatsAppUrl, normalizePhone } from '../utils/phone';
 import {
@@ -52,6 +56,8 @@ import {
   BarChart3,
   Calendar,
   AlertCircle,
+  Layers,
+  Info,
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -73,8 +79,8 @@ interface ConexaoJovemPageProps {
 }
 
 type ConexaoViewMode = ConexaoColor | 'geral';
-type ColorSubTab = 'convidados' | 'bases' | 'membros' | 'resultados' | 'metas' | 'relatorio';
-type GeralSubTab = 'comparativo' | 'membros_igreja' | 'metas_gerais' | 'equipes';
+type ColorSubTab = 'funil' | 'grafico_funil' | 'convidados' | 'bases' | 'membros' | 'resultados' | 'metas' | 'relatorio';
+type GeralSubTab = 'funil_geral' | 'grafico_funil_geral' | 'comparativo' | 'membros_igreja' | 'metas_gerais' | 'equipes';
 
 export type UnifiedConexaoParticipant = ConexaoParticipant & {
   churchContact?: Contact;
@@ -113,11 +119,11 @@ export const ConexaoJovemPage: React.FC<ConexaoJovemPageProps> = ({ onOpenContac
     }
   }, [isTeamLeader, assignedTeamColor, activeColorView]);
 
-  // Sub-tab inside a color workspace
-  const [activeSubTab, setActiveSubTab] = useState<ColorSubTab>('convidados');
+  // Sub-tab inside a color workspace - default to 4-stage funnel
+  const [activeSubTab, setActiveSubTab] = useState<ColorSubTab>('funil');
 
-  // Sub-tab inside Visão Geral
-  const [activeGeralSubTab, setActiveGeralSubTab] = useState<GeralSubTab>('comparativo');
+  // Sub-tab inside Visão Geral - default to general funnel
+  const [activeGeralSubTab, setActiveGeralSubTab] = useState<GeralSubTab>('funil_geral');
 
   // Metric selector for comparative all-teams chart
   const [comparativeMetric, setComparativeMetric] = useState<'guests' | 'attendance' | 'newMembers'>('guests');
@@ -134,6 +140,10 @@ export const ConexaoJovemPage: React.FC<ConexaoJovemPageProps> = ({ onOpenContac
   const [participantToEdit, setParticipantToEdit] = useState<ConexaoParticipant | null>(null);
   const [modalDefaultColor, setModalDefaultColor] = useState<ConexaoColor>('verde');
   const [modalDefaultRole, setModalDefaultRole] = useState<ConexaoRole>('convidado');
+  const [modalDefaultFunnelStage, setModalDefaultFunnelStage] = useState<ConexaoFunnelStage>('novo_contato');
+
+  // Interactive Timeline/History modal for specific contact
+  const [interactionModalParticipant, setInteractionModalParticipant] = useState<ConexaoParticipant | null>(null);
 
   // Modal for linking church members from main panel into a color team
   const [isEnrollModalOpen, setIsEnrollModalOpen] = useState(false);
@@ -179,6 +189,7 @@ export const ConexaoJovemPage: React.FC<ConexaoJovemPageProps> = ({ onOpenContac
       const normPhone = c.phone ? normalizePhone(c.phone) : '';
       if (seenContactIds.has(c.id) || (normPhone && seenPhones.has(normPhone))) return;
 
+      const dateStr = c.createdAt ? c.createdAt.split('T')[0].split('-').reverse().slice(0, 2).join('/') : '12/09';
       list.push({
         id: `cx-ct-${c.id}`,
         name: c.name,
@@ -190,6 +201,20 @@ export const ConexaoJovemPage: React.FC<ConexaoJovemPageProps> = ({ onOpenContac
         confirmedNextCulto: c.confirmedThisWeek || false,
         contactId: c.id,
         churchContact: c,
+        funnelStage: c.conexaoJovem.role === 'convidado' ? (c.confirmedThisWeek ? 'em_acompanhamento' : 'novo_contato') : 'integrado',
+        responsibleName: c.conexaoJovem.baseName ? `Base ${c.conexaoJovem.baseName}` : 'Equipe Geral',
+        lastInteraction: `${dateStr} - Novo contato`,
+        nextAction: 'Acompanhar integração na equipe',
+        interactions: [
+          {
+            id: `cx-int-${c.id}`,
+            date: dateStr,
+            situation: 'Novo contato',
+            notes: 'Vinculado da membresia geral',
+            registeredBy: 'Sistema',
+            createdAt: c.createdAt,
+          },
+        ],
         createdAt: c.createdAt,
         updatedAt: c.updatedAt,
       });
@@ -248,14 +273,17 @@ export const ConexaoJovemPage: React.FC<ConexaoJovemPageProps> = ({ onOpenContac
     return stats;
   }, [unifiedParticipants]);
 
-  // Overall totals across Conexão
+  // Overall totals across Conexão (or strictly for assigned team if team leader)
   const overallTotals = useMemo(() => {
-    const totalParticipants = unifiedParticipants.length;
-    const totalBases = unifiedParticipants.filter(p => p.role === 'sublider_base').length;
-    const totalMembers = unifiedParticipants.filter(p => p.role === 'membro').length;
-    const totalGuests = unifiedParticipants.filter(p => p.role === 'convidado').length;
-    const confirmedGuests = unifiedParticipants.filter(p => p.role === 'convidado' && p.confirmedNextCulto).length;
-    const totalChurchMembers = unifiedParticipants.filter(
+    const list = isTeamLeader
+      ? unifiedParticipants.filter(p => p.color === assignedTeamColor)
+      : unifiedParticipants;
+    const totalParticipants = list.length;
+    const totalBases = list.filter(p => p.role === 'sublider_base').length;
+    const totalMembers = list.filter(p => p.role === 'membro').length;
+    const totalGuests = list.filter(p => p.role === 'convidado').length;
+    const confirmedGuests = list.filter(p => p.role === 'convidado' && p.confirmedNextCulto).length;
+    const totalChurchMembers = list.filter(
       p => p.churchContact?.category === 'Membro' || p.role === 'membro' || p.role === 'lider' || p.role === 'sublider_base'
     ).length;
 
@@ -267,7 +295,7 @@ export const ConexaoJovemPage: React.FC<ConexaoJovemPageProps> = ({ onOpenContac
       confirmedGuests,
       totalChurchMembers,
     };
-  }, [unifiedParticipants]);
+  }, [unifiedParticipants, isTeamLeader, assignedTeamColor]);
 
   // Current active color config (if not in 'geral')
   const currentColorConfig = useMemo(() => {
@@ -381,11 +409,13 @@ export const ConexaoJovemPage: React.FC<ConexaoJovemPageProps> = ({ onOpenContac
   // Handlers
   const handleOpenAddParticipant = (
     color: ConexaoColor = activeColorView !== 'geral' ? activeColorView : 'verde',
-    role: ConexaoRole = 'convidado'
+    role: ConexaoRole = 'convidado',
+    stage: ConexaoFunnelStage = 'novo_contato'
   ) => {
     setParticipantToEdit(null);
     setModalDefaultColor(color);
     setModalDefaultRole(role);
+    setModalDefaultFunnelStage(stage);
     setIsParticipantModalOpen(true);
   };
 
@@ -393,6 +423,7 @@ export const ConexaoJovemPage: React.FC<ConexaoJovemPageProps> = ({ onOpenContac
     setParticipantToEdit(participant);
     setModalDefaultColor(participant.color);
     setModalDefaultRole(participant.role);
+    setModalDefaultFunnelStage(participant.funnelStage || 'novo_contato');
     setIsParticipantModalOpen(true);
   };
 
@@ -522,9 +553,13 @@ export const ConexaoJovemPage: React.FC<ConexaoJovemPageProps> = ({ onOpenContac
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <div className="p-4 bg-[#0A0A0A] border border-[#222222] rounded-xl flex items-center justify-between">
           <div>
-            <span className="text-[10px] uppercase font-bold text-zinc-400 block">Total de Jovens</span>
+            <span className="text-[10px] uppercase font-bold text-zinc-400 block">
+              {isTeamLeader ? `Total ${currentColorConfig?.displayName}` : 'Total de Jovens'}
+            </span>
             <span className="text-2xl font-black text-white">{overallTotals.totalParticipants}</span>
-            <span className="text-[10px] text-zinc-500 block mt-0.5">Nas 6 cores</span>
+            <span className="text-[10px] text-zinc-500 block mt-0.5">
+              {isTeamLeader ? 'Na sua equipe' : 'Nas 6 cores'}
+            </span>
           </div>
           <Users className="w-6 h-6 text-zinc-600" />
         </div>
@@ -551,7 +586,7 @@ export const ConexaoJovemPage: React.FC<ConexaoJovemPageProps> = ({ onOpenContac
 
         <div className="p-4 bg-[#0A0A0A] border border-[#222222] rounded-xl flex items-center justify-between">
           <div>
-            <span className="text-[10px] uppercase font-bold text-emerald-400 block">Membros da Igreja</span>
+            <span className="text-[10px] uppercase font-bold text-emerald-400 block">Membros Integrados</span>
             <span className="text-2xl font-black text-emerald-300">{overallTotals.totalChurchMembers}</span>
             <span className="text-[10px] text-zinc-500 block mt-0.5">Casa de Deus integrados</span>
           </div>
@@ -726,6 +761,30 @@ export const ConexaoJovemPage: React.FC<ConexaoJovemPageProps> = ({ onOpenContac
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-[#222222] pb-3">
             <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0">
               <button
+                onClick={() => setActiveSubTab('funil')}
+                className={`px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition-all whitespace-nowrap cursor-pointer ${
+                  activeSubTab === 'funil'
+                    ? 'bg-amber-500 text-black shadow-md'
+                    : 'bg-[#111111] text-zinc-400 hover:text-white hover:bg-[#1A1A1A]'
+                }`}
+              >
+                <Layers className="w-3.5 h-3.5" />
+                <span>Funil Kanban ({unifiedParticipants.filter(p => p.color === activeColorView).length})</span>
+              </button>
+
+              <button
+                onClick={() => setActiveSubTab('grafico_funil')}
+                className={`px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition-all whitespace-nowrap cursor-pointer ${
+                  activeSubTab === 'grafico_funil'
+                    ? 'bg-amber-500 text-black shadow-md font-black'
+                    : 'bg-[#111111] text-zinc-400 hover:text-white hover:bg-[#1A1A1A]'
+                }`}
+              >
+                <Filter className="w-3.5 h-3.5" />
+                <span>Gráfico de Funil (Gargalos)</span>
+              </button>
+
+              <button
                 onClick={() => setActiveSubTab('convidados')}
                 className={`px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition-all whitespace-nowrap ${
                   activeSubTab === 'convidados'
@@ -800,6 +859,70 @@ export const ConexaoJovemPage: React.FC<ConexaoJovemPageProps> = ({ onOpenContac
           </div>
 
           {/* =================================================== */}
+          {/* SUBTAB FUNIL: FUNIL KANBAN COM 4 ETAPAS PRINCIPAIS */}
+          {/* =================================================== */}
+          {activeSubTab === 'funil' && (
+            <div className="space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 bg-[#111111] border border-[#242424] rounded-xl text-xs">
+                <div className="flex items-center gap-2 text-zinc-300">
+                  <Layers className="w-4 h-4 text-amber-400" />
+                  <span className="font-bold">Quadro Kanban do Funil:</span>
+                  <span className="text-zinc-400">4 colunas principais (Novo contato → Em contato → Em acompanhamento → Integrado)</span>
+                </div>
+                <button
+                  onClick={() => setActiveSubTab('grafico_funil')}
+                  className="px-3 py-1.5 bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/30 rounded-lg font-bold flex items-center gap-1.5 transition-colors cursor-pointer self-start sm:self-auto"
+                >
+                  <Filter className="w-3.5 h-3.5" />
+                  <span>Ver Gráfico de Funil & Gargalos</span>
+                </button>
+              </div>
+
+              <ConexaoFunnelKanban
+                participants={unifiedParticipants.filter(p => p.color === activeColorView)}
+                activeColorView={activeColorView}
+                onOpenAddContact={(defaultStage) => {
+                  handleOpenAddParticipant(activeColorView as ConexaoColor, 'convidado', defaultStage || 'novo_contato');
+                }}
+                onEditParticipant={(p) => {
+                  handleEditParticipant(p);
+                }}
+              />
+            </div>
+          )}
+
+          {/* =================================================== */}
+          {/* SUBTAB GRAFICO FUNIL: GRÁFICO LITERAL DE FUNIL     */}
+          {/* =================================================== */}
+          {activeSubTab === 'grafico_funil' && (
+            <div className="space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 bg-[#111111] border border-[#242424] rounded-xl text-xs">
+                <div className="flex items-center gap-2 text-zinc-300">
+                  <Filter className="w-4 h-4 text-amber-400" />
+                  <span className="font-bold">Gráfico de Funil (Gargalos de Conversão):</span>
+                  <span className="text-zinc-400">Aspecto de funil vertical com diagnóstico de retenção</span>
+                </div>
+                <button
+                  onClick={() => setActiveSubTab('funil')}
+                  className="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 rounded-lg font-bold flex items-center gap-1.5 transition-colors cursor-pointer self-start sm:self-auto"
+                >
+                  <Layers className="w-3.5 h-3.5 text-amber-400" />
+                  <span>Alternar para Quadro Kanban</span>
+                </button>
+              </div>
+
+              <ConexaoFunnelChart
+                participants={unifiedParticipants.filter(p => p.color === activeColorView)}
+                activeColorView={activeColorView}
+                selectedCongregation={selectedCongregation}
+                onOpenAddContact={(defaultStage) => {
+                  handleOpenAddParticipant(activeColorView as ConexaoColor, 'convidado', defaultStage || 'novo_contato');
+                }}
+              />
+            </div>
+          )}
+
+          {/* =================================================== */}
           {/* SUBTAB 4: RESULTADOS DE JANEIRO A DEZEMBRO (GRÁFICO)*/}
           {/* =================================================== */}
           {activeSubTab === 'resultados' && (
@@ -821,39 +944,70 @@ export const ConexaoJovemPage: React.FC<ConexaoJovemPageProps> = ({ onOpenContac
                 </div>
 
                 {/* Key indicators of the year */}
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                  <div className="p-4 bg-[#141414] border border-[#262626] rounded-xl">
-                    <span className="text-[10px] text-zinc-400 uppercase font-bold block">Total Convidados no Ano</span>
-                    <span className="text-2xl font-black" style={{ color: currentColorConfig.hex }}>
-                      {(conexaoMonthlyResults[activeColorView] || []).reduce((acc, m) => acc + (m.guests || 0), 0)}
-                    </span>
-                    <span className="text-[10px] text-zinc-500 block mt-0.5">Soma de Jan a Dez</span>
-                  </div>
+                {(() => {
+                  const monthlyList = conexaoMonthlyResults[activeColorView] || [];
+                  const totalGuests = monthlyList.reduce((acc, m) => acc + (m.guests || 0), 0);
+                  const avgAttendance = Math.round(monthlyList.reduce((acc, m) => acc + (m.attendance || 0), 0) / 12);
+                  const totalNewMembers = monthlyList.reduce((acc, m) => acc + (m.newMembers || 0), 0);
+                  const bestMonth = totalGuests > 0 
+                    ? [...monthlyList].sort((a, b) => (b.guests || 0) - (a.guests || 0))[0]?.monthKey || '-'
+                    : '-';
 
-                  <div className="p-4 bg-[#141414] border border-[#262626] rounded-xl">
-                    <span className="text-[10px] text-zinc-400 uppercase font-bold block">Média de Presença / Culto</span>
-                    <span className="text-2xl font-black text-purple-300">
-                      {Math.round(
-                        (conexaoMonthlyResults[activeColorView] || []).reduce((acc, m) => acc + (m.attendance || 0), 0) / 12
+                  return (
+                    <>
+                      {totalGuests === 0 && (
+                        <div className="p-3.5 bg-blue-950/20 border border-blue-500/30 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+                          <div className="flex items-center gap-2 text-blue-300">
+                            <Info className="w-4 h-4 text-blue-400 shrink-0" />
+                            <span>
+                              <strong>Gráfico zerado no teste real:</strong> Nenhum cadastro registrado para esta equipe. O gráfico e os acumulados estão zerados e começarão a computar conforme novos contatos entrarem no funil.
+                            </span>
+                          </div>
+                          <button
+                            onClick={() => setActiveSubTab('grafico_funil')}
+                            className="px-2.5 py-1 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 rounded-lg font-bold text-[11px] whitespace-nowrap cursor-pointer transition-colors self-start sm:self-auto"
+                          >
+                            Ver Gráfico de Funil
+                          </button>
+                        </div>
                       )}
-                    </span>
-                    <span className="text-[10px] text-zinc-500 block mt-0.5">Jovens por sábado</span>
-                  </div>
 
-                  <div className="p-4 bg-[#141414] border border-[#262626] rounded-xl">
-                    <span className="text-[10px] text-zinc-400 uppercase font-bold block">Novos Membros Integrados</span>
-                    <span className="text-2xl font-black text-white">
-                      {(conexaoMonthlyResults[activeColorView] || []).reduce((acc, m) => acc + (m.newMembers || 0), 0)}
-                    </span>
-                    <span className="text-[10px] text-zinc-500 block mt-0.5">Permaneceram na igreja</span>
-                  </div>
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                        <div className="p-4 bg-[#141414] border border-[#262626] rounded-xl">
+                          <span className="text-[10px] text-zinc-400 uppercase font-bold block">Total Convidados no Ano</span>
+                          <span className="text-2xl font-black" style={{ color: currentColorConfig.hex }}>
+                            {totalGuests}
+                          </span>
+                          <span className="text-[10px] text-zinc-500 block mt-0.5">Soma de Jan a Dez</span>
+                        </div>
 
-                  <div className="p-4 bg-[#141414] border border-[#262626] rounded-xl">
-                    <span className="text-[10px] text-zinc-400 uppercase font-bold block">Melhor Mês</span>
-                    <span className="text-2xl font-black text-amber-300">Dezembro</span>
-                    <span className="text-[10px] text-zinc-500 block mt-0.5">Pico de convidados</span>
-                  </div>
-                </div>
+                        <div className="p-4 bg-[#141414] border border-[#262626] rounded-xl">
+                          <span className="text-[10px] text-zinc-400 uppercase font-bold block">Média de Presença / Culto</span>
+                          <span className="text-2xl font-black text-purple-300">
+                            {avgAttendance}
+                          </span>
+                          <span className="text-[10px] text-zinc-500 block mt-0.5">Jovens por sábado</span>
+                        </div>
+
+                        <div className="p-4 bg-[#141414] border border-[#262626] rounded-xl">
+                          <span className="text-[10px] text-zinc-400 uppercase font-bold block">Novos Membros Integrados</span>
+                          <span className="text-2xl font-black text-white">
+                            {totalNewMembers}
+                          </span>
+                          <span className="text-[10px] text-zinc-500 block mt-0.5">Permaneceram na igreja</span>
+                        </div>
+
+                        <div className="p-4 bg-[#141414] border border-[#262626] rounded-xl">
+                          <span className="text-[10px] text-zinc-400 uppercase font-bold block">Melhor Mês</span>
+                          <span className="text-2xl font-black text-amber-300">{bestMonth}</span>
+                          <span className="text-[10px] text-zinc-500 block mt-0.5">
+                            {totalGuests > 0 ? 'Pico de convidados' : 'Sem registros'}
+                          </span>
+                        </div>
+                      </div>
+                    </>
+                  );
+                })()}
 
                 {/* Main Team Chart */}
                 <div className="p-4 bg-[#121212] border border-[#222222] rounded-xl space-y-3">
@@ -953,9 +1107,15 @@ export const ConexaoJovemPage: React.FC<ConexaoJovemPageProps> = ({ onOpenContac
                           <td className="py-2.5 px-3 text-right text-purple-300 font-semibold">{m.attendance}</td>
                           <td className="py-2.5 px-3 text-right text-white font-semibold">{m.newMembers}</td>
                           <td className="py-2.5 px-3 text-right">
-                            <span className="text-[10px] px-2 py-0.5 rounded font-bold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
-                              Meta Atingida
-                            </span>
+                            {m.guests === 0 && m.attendance === 0 ? (
+                              <span className="text-[10px] px-2 py-0.5 rounded font-medium bg-zinc-800 text-zinc-500 border border-zinc-700/50">
+                                Sem registros
+                              </span>
+                            ) : (
+                              <span className="text-[10px] px-2 py-0.5 rounded font-bold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
+                                Meta Atingida
+                              </span>
+                            )}
                           </td>
                         </tr>
                       ))}
@@ -1187,7 +1347,8 @@ export const ConexaoJovemPage: React.FC<ConexaoJovemPageProps> = ({ onOpenContac
                     <tr>
                       <th className="py-3 px-4">Nome do Convidado</th>
                       <th className="py-3 px-4">Telefone / WhatsApp</th>
-                      <th className="py-3 px-4">Quem Convidou</th>
+                      <th className="py-3 px-4">Etapa do Funil</th>
+                      <th className="py-3 px-4">Última Interação / Resp.</th>
                       <th className="py-3 px-4">Base Vinculada</th>
                       <th className="py-3 px-4 text-center">Presença Culto</th>
                       <th className="py-3 px-4 text-right">Ações</th>
@@ -1196,7 +1357,7 @@ export const ConexaoJovemPage: React.FC<ConexaoJovemPageProps> = ({ onOpenContac
                   <tbody className="divide-y divide-[#1C1C1C]">
                     {displayedParticipants.length === 0 ? (
                       <tr>
-                        <td colSpan={6} className="py-8 text-center text-zinc-500 italic">
+                        <td colSpan={7} className="py-8 text-center text-zinc-500 italic">
                           Nenhum convidado cadastrado nesta categoria.
                         </td>
                       </tr>
@@ -1218,13 +1379,33 @@ export const ConexaoJovemPage: React.FC<ConexaoJovemPageProps> = ({ onOpenContac
                               href={getWhatsAppUrl(p.phone)}
                               target="_blank"
                               rel="noreferrer"
-                              className="text-emerald-400 hover:underline flex items-center gap-1"
+                              className="text-emerald-400 hover:underline flex items-center gap-1 font-mono"
                             >
                               <Phone className="w-3 h-3" />
                               <span>{p.phone}</span>
                             </a>
                           </td>
-                          <td className="py-3 px-4 text-zinc-400">{p.invitedByName || 'Equipe Geral'}</td>
+                          <td className="py-3 px-4">
+                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${
+                              p.funnelStage === 'integrado'
+                                ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                                : p.funnelStage === 'em_acompanhamento'
+                                ? 'bg-indigo-500/20 text-indigo-300 border-indigo-500/40'
+                                : p.funnelStage === 'em_contato'
+                                ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                                : 'bg-sky-500/20 text-sky-300 border-sky-500/40'
+                            }`}>
+                              {FUNNEL_STAGES.find(s => s.id === (p.funnelStage || 'novo_contato'))?.label || 'Novo contato'}
+                            </span>
+                          </td>
+                          <td className="py-3 px-4">
+                            <p className="text-[11px] text-zinc-300 truncate max-w-[170px]" title={p.lastInteraction}>
+                              {p.lastInteraction || 'Sem interação'}
+                            </p>
+                            <span className="text-[10px] text-zinc-500 block truncate max-w-[170px]">
+                              Resp: {p.responsibleName || 'Não definido'}
+                            </span>
+                          </td>
                           <td className="py-3 px-4 text-zinc-400">{p.baseName || 'Sem Base'}</td>
                           <td className="py-3 px-4 text-center">
                             <button
@@ -1240,6 +1421,14 @@ export const ConexaoJovemPage: React.FC<ConexaoJovemPageProps> = ({ onOpenContac
                           </td>
                           <td className="py-3 px-4 text-right">
                             <div className="flex items-center justify-end gap-1.5">
+                              <button
+                                onClick={() => setInteractionModalParticipant(p)}
+                                className="px-2 py-1 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 text-amber-300 rounded text-[10px] font-bold flex items-center gap-1 transition-colors"
+                                title="Abrir Histórico e Registrar Interação"
+                              >
+                                <MessageSquare className="w-3 h-3" />
+                                <span>Histórico</span>
+                              </button>
                               {p.churchContact && onOpenContactDetails && (
                                 <button
                                   onClick={() => onOpenContactDetails(p.churchContact!)}
@@ -1491,6 +1680,30 @@ export const ConexaoJovemPage: React.FC<ConexaoJovemPageProps> = ({ onOpenContac
           {/* Subtabs for Geral */}
           <div className="flex items-center gap-2 border-b border-[#222222] pb-3 overflow-x-auto">
             <button
+              onClick={() => setActiveGeralSubTab('funil_geral')}
+              className={`px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider flex items-center gap-2 transition-all whitespace-nowrap cursor-pointer ${
+                activeGeralSubTab === 'funil_geral'
+                  ? 'bg-amber-500 text-black shadow-lg font-black'
+                  : 'bg-[#111111] text-zinc-400 hover:text-white hover:bg-[#1A1A1A]'
+              }`}
+            >
+              <Layers className="w-4 h-4" />
+              <span>Funil Kanban (4 Etapas)</span>
+            </button>
+
+            <button
+              onClick={() => setActiveGeralSubTab('grafico_funil_geral')}
+              className={`px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider flex items-center gap-2 transition-all whitespace-nowrap cursor-pointer ${
+                activeGeralSubTab === 'grafico_funil_geral'
+                  ? 'bg-amber-500 text-black shadow-lg font-black'
+                  : 'bg-[#111111] text-zinc-400 hover:text-white hover:bg-[#1A1A1A]'
+              }`}
+            >
+              <Filter className="w-4 h-4" />
+              <span>Gráfico de Funil Geral (Gargalos)</span>
+            </button>
+
+            <button
               onClick={() => setActiveGeralSubTab('comparativo')}
               className={`px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider flex items-center gap-2 transition-all whitespace-nowrap ${
                 activeGeralSubTab === 'comparativo'
@@ -1538,6 +1751,70 @@ export const ConexaoJovemPage: React.FC<ConexaoJovemPageProps> = ({ onOpenContac
               <span>Visão das 6 Equipes</span>
             </button>
           </div>
+
+          {/* =================================================== */}
+          {/* GERAL SUBTAB 0: FUNIL GERAL DE CONTATOS (4 ETAPAS)  */}
+          {/* =================================================== */}
+          {activeGeralSubTab === 'funil_geral' && (
+            <div className="space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 bg-[#111111] border border-[#242424] rounded-xl text-xs">
+                <div className="flex items-center gap-2 text-zinc-300">
+                  <Layers className="w-4 h-4 text-amber-400" />
+                  <span className="font-bold">Quadro Kanban Geral:</span>
+                  <span className="text-zinc-400">Contatos distribuídos pelas 4 etapas principais</span>
+                </div>
+                <button
+                  onClick={() => setActiveGeralSubTab('grafico_funil_geral')}
+                  className="px-3 py-1.5 bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/30 rounded-lg font-bold flex items-center gap-1.5 transition-colors cursor-pointer self-start sm:self-auto"
+                >
+                  <Filter className="w-3.5 h-3.5" />
+                  <span>Ver Gráfico de Funil & Gargalos</span>
+                </button>
+              </div>
+
+              <ConexaoFunnelKanban
+                participants={unifiedParticipants}
+                activeColorView="geral"
+                onOpenAddContact={(defaultStage) => {
+                  handleOpenAddParticipant('verde', 'convidado', defaultStage || 'novo_contato');
+                }}
+                onEditParticipant={(p) => {
+                  handleEditParticipant(p);
+                }}
+              />
+            </div>
+          )}
+
+          {/* ========================================================= */}
+          {/* GERAL SUBTAB FUNIL GRAFICO: GRÁFICO LITERAL DE FUNIL GERAL */}
+          {/* ========================================================= */}
+          {activeGeralSubTab === 'grafico_funil_geral' && (
+            <div className="space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 bg-[#111111] border border-[#242424] rounded-xl text-xs">
+                <div className="flex items-center gap-2 text-zinc-300">
+                  <Filter className="w-4 h-4 text-amber-400" />
+                  <span className="font-bold">Gráfico de Funil Geral:</span>
+                  <span className="text-zinc-400">Aspecto de funil vertical com identificação de gargalos de retenção</span>
+                </div>
+                <button
+                  onClick={() => setActiveGeralSubTab('funil_geral')}
+                  className="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 rounded-lg font-bold flex items-center gap-1.5 transition-colors cursor-pointer self-start sm:self-auto"
+                >
+                  <Layers className="w-3.5 h-3.5 text-amber-400" />
+                  <span>Alternar para Quadro Kanban</span>
+                </button>
+              </div>
+
+              <ConexaoFunnelChart
+                participants={unifiedParticipants}
+                activeColorView="geral"
+                selectedCongregation={selectedCongregation}
+                onOpenAddContact={(defaultStage) => {
+                  handleOpenAddParticipant('verde', 'convidado', defaultStage || 'novo_contato');
+                }}
+              />
+            </div>
+          )}
 
           {/* =================================================== */}
           {/* GERAL SUBTAB 1: GRÁFICO COMPARATIVO (JAN A DEZ)     */}
@@ -1606,6 +1883,24 @@ export const ConexaoJovemPage: React.FC<ConexaoJovemPageProps> = ({ onOpenContac
                     );
                   })}
                 </div>
+
+                {/* Real Test Empty Banner */}
+                {comparativeMonthlyData.every(row => row.total === 0) && (
+                  <div className="p-3.5 bg-blue-950/20 border border-blue-500/30 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+                    <div className="flex items-center gap-2 text-blue-300">
+                      <Info className="w-4 h-4 text-blue-400 shrink-0" />
+                      <span>
+                        <strong>Gráfico no teste real zerado:</strong> Não há contatos ou participantes cadastrados no momento. As 6 equipes constam zeradas aguardando novos registros de participantes.
+                      </span>
+                    </div>
+                    <button
+                      onClick={() => setActiveGeralSubTab('grafico_funil_geral')}
+                      className="px-2.5 py-1 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 rounded-lg font-bold text-[11px] whitespace-nowrap cursor-pointer transition-colors self-start sm:self-auto"
+                    >
+                      Ver Gráfico de Funil Geral
+                    </button>
+                  </div>
+                )}
 
                 {/* Big Multi-Line Chart comparing all 6 teams */}
                 <div className="h-80 w-full pt-2">
@@ -2077,7 +2372,19 @@ export const ConexaoJovemPage: React.FC<ConexaoJovemPageProps> = ({ onOpenContac
         participantToEdit={participantToEdit}
         defaultColor={modalDefaultColor}
         defaultRole={modalDefaultRole}
+        defaultFunnelStage={modalDefaultFunnelStage}
       />
+
+      {interactionModalParticipant && (
+        <ConexaoInteractionModal
+          isOpen={true}
+          onClose={() => setInteractionModalParticipant(null)}
+          participant={interactionModalParticipant}
+          onParticipantUpdated={updated => {
+            setInteractionModalParticipant(updated);
+          }}
+        />
+      )}
 
       <EnrollConexaoModal
         isOpen={isEnrollModalOpen}

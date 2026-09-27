@@ -23,7 +23,21 @@ export type InteractionChannel = 'WhatsApp' | 'Ligação' | 'Presencial' | 'Outr
 
 export type TaskStatus = 'pending' | 'completed';
 
-export type UserRole = 'admin' | 'equipe' | 'lider_equipe' | 'lider_conexao';
+export type CuricicaFamily = 'familia_1' | 'familia_2' | 'familia_3';
+
+export const CURICICA_FAMILIES: { id: CuricicaFamily; name: string; leaderName: string }[] = [
+  { id: 'familia_1', name: 'Família 1', leaderName: 'Priscila Ramos' },
+  { id: 'familia_2', name: 'Família 2', leaderName: 'Carlos Eduardo' },
+  { id: 'familia_3', name: 'Família 3', leaderName: 'Vanessa Mello' },
+];
+
+export type UserRole =
+  | 'admin'
+  | 'equipe'
+  | 'lider_equipe'
+  | 'lider_conexao'
+  | 'lider_familia'
+  | 'admin_curicica';
 
 export type ConexaoAccessRole = 'lider_geral' | ConexaoColor;
 
@@ -35,6 +49,7 @@ export interface UserProfile {
   password?: string;
   role: UserRole;
   assignedTeam?: ConexaoColor; // Specific team color when role is 'lider_equipe'
+  assignedCuricicaFamily?: CuricicaFamily; // Specific family when role is 'lider_familia'
   assignedCongregations: Congregation[];
   conexaoAccessRole?: ConexaoAccessRole; // Specific role for Conexão Jovem
   active: boolean;
@@ -42,7 +57,17 @@ export interface UserProfile {
   createdAt?: string;
 }
 
-export type MainTab = 'dashboard' | 'igrejas' | 'contacts' | 'unireino' | 'conexaojovem' | 'followup' | 'team' | 'security';
+export type MainTab =
+  | 'dashboard'
+  | 'igrejas'
+  | 'curicica'
+  | 'confirmados'
+  | 'contacts'
+  | 'unireino'
+  | 'conexaojovem'
+  | 'followup'
+  | 'team'
+  | 'security';
 
 export type ContactViewTab = 'all' | 'membros' | 'convidados' | 'confirmados';
 
@@ -75,6 +100,21 @@ export type ConexaoRole =
   | 'membro'         // Membro ativo da Cor
   | 'convidado';     // Jovem Convidado / Visitante
 
+export type ConexaoFunnelStage =
+  | 'novo_contato'
+  | 'em_contato'
+  | 'em_acompanhamento'
+  | 'integrado';
+
+export interface ConexaoInteraction {
+  id: string;
+  date: string;
+  situation: string; // Ex: 'não respondeu', 'respondeu', 'convidado para o culto', 'confirmou presença', 'faltou', 'compareceu', 'demonstrou interesse', 'retorno agendado', 'sem interesse', 'WhatsApp enviado', etc.
+  notes?: string;
+  registeredBy?: string;
+  createdAt: string;
+}
+
 export interface ConexaoParticipant {
   id: string;
   name: string;
@@ -92,6 +132,15 @@ export interface ConexaoParticipant {
   points?: number;           // Pontos na gincana/conexão da cor
   notes?: string;            // Observações pastorais/integração
   contactId?: string;        // ID vinculado na tabela de contatos geral
+
+  // Funil de 4 etapas do Conexão Jovem
+  funnelStage?: ConexaoFunnelStage;   // 'novo_contato' | 'em_contato' | 'em_acompanhamento' | 'integrado'
+  responsibleName?: string;          // Responsável pelo acompanhamento
+  lastInteraction?: string;          // Última interação (ex: "20/09 - Compareceu ao culto")
+  nextAction?: string;               // Próxima ação (ex: "Ligar para saber do culto")
+  nextReturnDate?: string;           // Próxima data de retorno (ex: "2026-09-30")
+  interactions?: ConexaoInteraction[]; // Histórico completo de interações
+
   createdAt: string;
   updatedAt: string;
 }
@@ -148,6 +197,7 @@ export interface Contact {
   updatedAt: string;
   uniReino?: UniReinoEnrollment;
   conexaoJovem?: ConexaoMembership;
+  curicicaFamily?: CuricicaFamily;
 }
 
 export interface Interaction {
@@ -206,3 +256,46 @@ export interface MonthlyTrendData {
   firstVisits: number;
   memberEntries: number;
 }
+
+export type WeeklyConfirmationStatus = 'confirmed' | 'unconfirmed';
+
+export interface WeeklyConfirmationEntry {
+  contactId: string;
+  name: string;
+  category: ContactCategory; // 'Novo contato' (Convidado) | 'Visitante' | 'Membro'
+  phone: string;
+  congregation: Congregation;
+  responsibleId?: string;
+  responsibleName?: string;
+  status: WeeklyConfirmationStatus; // 'confirmed' (Verde) | 'unconfirmed' (Vermelho)
+  absenceReason?: string; // Motivo obrigatório/destacado se 'unconfirmed'
+  notes?: string;
+  updatedAt: string;
+}
+
+export interface WeeklyConfirmationSummary {
+  total: number;
+  confirmed: number;
+  unconfirmed: number;
+  confirmationRate: number; // 0 to 100
+  byCategory: {
+    membros: number;
+    visitantes: number;
+    convidados: number;
+  };
+  topReasons: { reason: string; count: number }[];
+}
+
+export interface WeeklyConfirmationReport {
+  id: string; // e.g. "report-2026-09-21-all"
+  weekKey: string; // YYYY-MM-DD representing the Monday
+  weekLabel: string; // e.g. "Semana de 21/09 a 27/09/2026"
+  startDate: string; // YYYY-MM-DD
+  endDate: string; // YYYY-MM-DD
+  congregation: CongregationFilter;
+  entries: WeeklyConfirmationEntry[];
+  summary: WeeklyConfirmationSummary;
+  savedAt: string;
+  savedBy?: string;
+}
+

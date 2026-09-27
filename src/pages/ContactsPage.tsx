@@ -33,6 +33,7 @@ import { ConexaoLogo } from '../components/ConexaoLogo';
 import { UniReinoBadge } from '../components/UniReinoBadge';
 import { ConexaoColorBadge } from '../components/ConexaoColorBadge';
 import { EnrollConexaoModal } from '../components/EnrollConexaoModal';
+import { ConfirmadosSemanaPage } from './ConfirmadosSemanaPage';
 import { ConexaoColor } from '../types';
 import { CONEXAO_COLORS, CONEXAO_COLOR_CONFIGS } from '../utils/conexaoConfig';
 
@@ -283,17 +284,13 @@ export const ContactsPage: React.FC<ContactsPageProps> = ({
         </button>
       </div>
 
-      {activeViewTab === 'confirmados' && (
-        <div className="p-3 bg-[#111111] border border-[#2A2A2A] rounded-xl flex items-center justify-between text-xs text-[#CCCCCC]">
-          <div className="flex items-center gap-2">
-            <CheckCheck className="w-4 h-4 text-white shrink-0" />
-            <span>
-              <strong>Aba de Presenças da Semana:</strong> Pessoas que já confirmaram presença para os cultos deste fim de semana ({selectedCongregation === 'all' ? 'Todas as congregações' : selectedCongregation}).
-            </span>
-          </div>
-        </div>
-      )}
-
+      {activeViewTab === 'confirmados' ? (
+        <ConfirmadosSemanaPage
+          onOpenContactDetails={onOpenContactDetails}
+          onOpenNewContact={onOpenNewContact}
+        />
+      ) : (
+        <>
       {/* Search and Filters Bar */}
       <div className="p-4 bg-[#0B0B0B] border border-[#262626] rounded-xl space-y-3">
         <div className="flex flex-col md:flex-row items-stretch md:items-center gap-3">
@@ -626,9 +623,7 @@ export const ContactsPage: React.FC<ContactsPageProps> = ({
               {paginatedContacts.length === 0 ? (
                 <tr>
                   <td colSpan={10} className="py-12 text-center text-[#777777]">
-                    {activeViewTab === 'confirmados'
-                      ? 'Nenhum membro ou convidado confirmado para o próximo culto ainda nesta congregação. Nas abas "Membros" ou "Convidados", clique no botão "Confirmar" para registrar a confirmação de presença.'
-                      : 'Nenhum contato encontrado com os critérios selecionados.'}
+                    Nenhum contato encontrado com os critérios selecionados.
                   </td>
                 </tr>
               ) : (
@@ -785,9 +780,7 @@ export const ContactsPage: React.FC<ContactsPageProps> = ({
       <div className="lg:hidden space-y-3">
         {paginatedContacts.length === 0 ? (
           <div className="py-12 px-4 text-center bg-[#0B0B0B] border border-[#262626] rounded-xl text-xs text-[#777777] leading-relaxed">
-            {activeViewTab === 'confirmados'
-              ? 'Nenhum membro ou convidado confirmado para o próximo culto ainda nesta congregação. Nas abas "Membros" ou "Convidados", toque em "Confirmar culto" para marcar presença.'
-              : 'Nenhum contato encontrado com os critérios selecionados.'}
+            Nenhum contato encontrado com os critérios selecionados.
           </div>
         ) : (
           paginatedContacts.map(contact => {
@@ -958,6 +951,8 @@ export const ContactsPage: React.FC<ContactsPageProps> = ({
             </button>
           </div>
         </div>
+      )}
+        </>
       )}
 
       {/* Enroll in Conexão Jovem Modal */}

@@ -9,6 +9,7 @@ import {
   ShieldCheck,
   KeyRound,
   Crown,
+  CheckCheck,
 } from 'lucide-react';
 import { useCRM } from '../context/CRMContext';
 import { useAuth } from '../context/AuthContext';
@@ -16,67 +17,125 @@ import { MainTab } from '../types';
 import { ConexaoLogo } from './ConexaoLogo';
 import { CONEXAO_COLOR_CONFIGS } from '../utils/conexaoConfig';
 
+import { getUserPermissions } from '../utils/permissions';
+import { Home } from 'lucide-react';
+
 interface SidebarProps {
   activeTab: MainTab;
   setActiveTab: (tab: MainTab) => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => {
-  const { metrics, uniReinoStudents, conexaoParticipants } = useCRM();
+  const { metrics, uniReinoStudents, conexaoParticipants, contacts } = useCRM();
   const { isDemoMode, currentUser, toggleDemoMode } = useAuth();
+  const perms = getUserPermissions(currentUser);
 
-  const isAdmin = currentUser?.role === 'admin';
+  const confirmedCount = contacts.filter(c => c.confirmedThisWeek && !c.isArchived).length;
 
-  const navItems: {
+  type NavItem = {
     id: MainTab;
     label: string;
     icon: React.ComponentType<{ className?: string }>;
     isConexao?: boolean;
     badge?: number | string;
-    badgeType?: 'overdue' | 'today' | 'master' | 'unireino' | 'conexaojovem';
-  }[] = [
-    {
+    badgeType?: 'overdue' | 'today' | 'master' | 'unireino' | 'conexaojovem' | 'confirmados';
+  };
+
+  const navItems: NavItem[] = [];
+
+  // Dashboard (only for Master, Curicica Admin, or Staff)
+  if (perms.canAccessDashboard) {
+    navItems.push({
       id: 'dashboard',
       label: 'Dashboard',
       icon: LayoutDashboard,
-    },
-    {
+    });
+  }
+
+  // Igrejas (only Master)
+  if (perms.canAccessChurches) {
+    navItems.push({
       id: 'igrejas',
       label: 'Igrejas',
       icon: Church,
       badge: '3 sedes',
       badgeType: 'today',
-    },
-    {
+    });
+  }
+
+  // Curicica Famílias (only Curicica assigned or Master)
+  if (perms.canAccessCuricicaPage) {
+    const familyBadge = perms.isFamilyLeader
+      ? (perms.curicicaFamilyRestricted === 'familia_1' ? 'Família 1' : perms.curicicaFamilyRestricted === 'familia_2' ? 'Família 2' : 'Família 3')
+      : '3 Famílias';
+    navItems.push({
+      id: 'curicica',
+      label: perms.isFamilyLeader ? 'Minha Família' : 'Curicica (Famílias)',
+      icon: Home,
+      badge: familyBadge,
+      badgeType: 'today',
+    });
+  }
+
+  // Conexão Jovem (only Conexão leaders or Master)
+  if (perms.canAccessConexao) {
+    const conexaoBadge = perms.isTeamLeader
+      ? (currentUser?.assignedTeam ? `Equipe ${currentUser.assignedTeam.toUpperCase()}` : undefined)
+      : (conexaoParticipants.length > 0 ? `${conexaoParticipants.length}` : undefined);
+    navItems.push({
       id: 'conexaojovem',
-      label: 'Conexão Jovem',
-      icon: Sparkles, // Fallback icon type
+      label: perms.isTeamLeader ? `Conexão • Equipe ${currentUser?.assignedTeam?.toUpperCase()}` : 'Conexão Jovem',
+      icon: Sparkles,
       isConexao: true,
-      badge: conexaoParticipants.length > 0 ? `${conexaoParticipants.length}` : undefined,
+      badge: conexaoBadge,
       badgeType: 'conexaojovem',
-    },
-    {
+    });
+  }
+
+  // Confirmados da Semana (not team leader)
+  if (perms.canAccessConfirmados) {
+    navItems.push({
+      id: 'confirmados',
+      label: 'Confirmados da Semana',
+      icon: CheckCheck,
+      badge: confirmedCount > 0 ? `${confirmedCount}` : undefined,
+      badgeType: 'confirmados',
+    });
+  }
+
+  // Contatos (not team leader)
+  if (perms.canAccessContacts) {
+    navItems.push({
       id: 'contacts',
-      label: 'Contatos',
+      label: perms.isFamilyLeader ? 'Membros da Família' : 'Contatos',
       icon: Users,
-    },
-    {
+    });
+  }
+
+  // Uni Reino (only Master or Recreio Staff)
+  if (perms.canAccessUniReino) {
+    navItems.push({
       id: 'unireino',
       label: 'Uni Reino',
       icon: Crown,
       badge: uniReinoStudents.length > 0 ? uniReinoStudents.length : undefined,
       badgeType: 'unireino',
-    },
-    {
+    });
+  }
+
+  // Acompanhamento / Follow-up
+  if (perms.canAccessFollowup) {
+    navItems.push({
       id: 'followup',
       label: 'Acompanhamento',
       icon: CalendarCheck,
       badge: metrics.pendingReturnsTotal > 0 ? metrics.pendingReturnsTotal : undefined,
       badgeType: metrics.pendingReturnsOverdue > 0 ? ('overdue' as const) : ('today' as const),
-    },
-  ];
+    });
+  }
 
-  if (isAdmin) {
+  // Acessos da Equipe (only Master)
+  if (perms.canAccessTeam) {
     navItems.push({
       id: 'team',
       label: 'Acessos da Equipe',
@@ -86,6 +145,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
     });
   }
 
+  // Alterar Senha
   navItems.push({
     id: 'security',
     label: 'Alterar Senha',
@@ -129,7 +189,9 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
                   {item.badge !== undefined && (
                     <span
                       className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                        item.badgeType === 'unireino'
+                        item.badgeType === 'confirmados'
+                          ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                          : item.badgeType === 'unireino'
                           ? 'bg-gradient-to-r from-amber-400 to-yellow-400 text-black font-black shadow-sm shadow-amber-500/30'
                           : item.badgeType === 'conexaojovem'
                           ? 'bg-gradient-to-r from-amber-400 via-rose-400 to-cyan-400 text-black font-black shadow-sm'

@@ -1,4 +1,10 @@
-import { Contact, ContactsFilterState, CongregationFilter } from '../types';
+import {
+  Contact,
+  ContactsFilterState,
+  CongregationFilter,
+  WeeklyConfirmationEntry,
+  WeeklyConfirmationSummary,
+} from '../types';
 import { formatDateBR } from './date';
 
 /**
@@ -93,3 +99,78 @@ export function exportContactsToCSV(
   document.body.removeChild(link);
   URL.revokeObjectURL(url);
 }
+
+/**
+ * Exports weekly confirmation list (Convidados, Visitantes, Membros) to CSV/Excel
+ * Includes mandatory columns: Nome, Tipo, Telefone, Responsável, Status, Motivo da Ausência, Data/Semana de Referência.
+ */
+export function exportWeeklyConfirmationsToCSV(
+  entries: WeeklyConfirmationEntry[],
+  weekLabel: string,
+  activeCongregation: CongregationFilter,
+  summary?: WeeklyConfirmationSummary
+): void {
+  const lines: string[] = [];
+
+  // Metadata comments in header
+  lines.push(`# CASA DE DEUS - RELATÓRIO DE CONFIRMADOS DA SEMANA`);
+  lines.push(`# Semana de Referência: ${weekLabel}`);
+  lines.push(`# Congregação: ${activeCongregation === 'all' ? 'Todas as congregações' : activeCongregation}`);
+  lines.push(`# Data de emissão: ${new Date().toLocaleString('pt-BR')}`);
+  lines.push(`# Total de pessoas na lista: ${entries.length}`);
+  if (summary) {
+    lines.push(`# Confirmados (Positivo/Verde): ${summary.confirmed} (${summary.confirmationRate}%)`);
+    lines.push(`# Ausentes/Não confirmados (Negativo/Vermelho): ${summary.unconfirmed}`);
+    lines.push(`# Membros: ${summary.byCategory.membros} | Visitantes: ${summary.byCategory.visitantes} | Convidados: ${summary.byCategory.convidados}`);
+  }
+  lines.push('');
+
+  // Mandatory CSV Column headers
+  const headers = [
+    'Nome',
+    'Tipo (Membro/Visitante/Convidado)',
+    'Telefone',
+    'Responsável',
+    'Status (Confirmado/Não Confirmado)',
+    'Motivo da Ausência',
+    'Data/Semana de Referência',
+    'Congregação',
+    'Observações'
+  ];
+
+  lines.push(headers.map(sanitizeCSVCell).join(';'));
+
+  for (const entry of entries) {
+    const statusLabel = entry.status === 'confirmed' ? 'Confirmado' : 'Não Confirmado';
+    const motivoLabel = entry.status === 'confirmed' ? '-' : (entry.absenceReason || 'Não informado');
+
+    const row = [
+      entry.name,
+      entry.category,
+      entry.phone,
+      entry.responsibleName || 'Não atribuído',
+      statusLabel,
+      motivoLabel,
+      weekLabel,
+      entry.congregation,
+      entry.notes || ''
+    ];
+    lines.push(row.map(sanitizeCSVCell).join(';'));
+  }
+
+  // Prepend UTF-8 BOM for Excel / Google Sheets
+  const csvContent = '\uFEFF' + lines.join('\r\n');
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+
+  const link = document.createElement('a');
+  link.setAttribute('href', url);
+  const safeWeekName = weekLabel.replace(/[^a-zA-Z0-9-]/g, '_');
+  const congSlug = activeCongregation === 'all' ? 'todas' : activeCongregation.toLowerCase();
+  link.setAttribute('download', `confirmados-semana-${congSlug}-${safeWeekName}.csv`);
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+

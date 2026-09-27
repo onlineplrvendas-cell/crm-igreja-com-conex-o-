@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Modal } from './Modal';
 import { useCRM } from '../context/CRMContext';
+import { useAuth } from '../context/AuthContext';
 import { Contact, ConexaoColor, ConexaoRole, ConexaoMembership } from '../types';
 import { CONEXAO_COLORS, CONEXAO_COLOR_CONFIGS, CONEXAO_ROLE_META } from '../utils/conexaoConfig';
 import { ConexaoColorBadge } from './ConexaoColorBadge';
@@ -15,6 +16,7 @@ import {
   AlertTriangle,
   User,
   X,
+  Lock,
 } from 'lucide-react';
 
 interface EnrollConexaoModalProps {
@@ -33,6 +35,9 @@ export const EnrollConexaoModal: React.FC<EnrollConexaoModalProps> = ({
   defaultRole = 'membro',
 }) => {
   const { contacts, conexaoParticipants, enrollInConexao, unenrollFromConexao } = useCRM();
+  const { currentUser } = useAuth();
+  const isTeamLeader = currentUser?.role === 'lider_equipe';
+  const assignedTeamColor = (currentUser?.assignedTeam as ConexaoColor) || undefined;
 
   const isEditing = !!contactToEdit && !!contactToEdit.conexaoJovem;
 
@@ -41,7 +46,9 @@ export const EnrollConexaoModal: React.FC<EnrollConexaoModalProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
 
   // Conexão Fields
-  const [color, setColor] = useState<ConexaoColor>(defaultColor);
+  const [color, setColor] = useState<ConexaoColor>(
+    isTeamLeader && assignedTeamColor ? assignedTeamColor : defaultColor
+  );
   const [role, setRole] = useState<ConexaoRole>(defaultRole);
   const [baseName, setBaseName] = useState('');
 
@@ -51,28 +58,29 @@ export const EnrollConexaoModal: React.FC<EnrollConexaoModalProps> = ({
   const [confirmUnenroll, setConfirmUnenroll] = useState(false);
 
   useEffect(() => {
+    const targetColor = isTeamLeader && assignedTeamColor ? assignedTeamColor : defaultColor;
     if (contactToEdit) {
       setSelectedContactId(contactToEdit.id);
       if (contactToEdit.conexaoJovem) {
-        setColor(contactToEdit.conexaoJovem.color || defaultColor);
+        setColor(isTeamLeader && assignedTeamColor ? assignedTeamColor : (contactToEdit.conexaoJovem.color || defaultColor));
         setRole(contactToEdit.conexaoJovem.role || defaultRole);
         setBaseName(contactToEdit.conexaoJovem.baseName || '');
       } else {
-        setColor(defaultColor);
+        setColor(targetColor);
         setRole(contactToEdit.category === 'Membro' ? 'membro' : 'convidado');
         setBaseName('');
       }
     } else {
       setSelectedContactId('');
       setSearchQuery('');
-      setColor(defaultColor);
+      setColor(targetColor);
       setRole(defaultRole);
       setBaseName('');
     }
     setConfirmUnenroll(false);
     setErrorMsg(null);
     setSuccessMsg(null);
-  }, [contactToEdit, isOpen, defaultColor, defaultRole]);
+  }, [contactToEdit, isOpen, defaultColor, defaultRole, isTeamLeader, assignedTeamColor]);
 
   if (!isOpen) return null;
 
@@ -114,8 +122,9 @@ export const EnrollConexaoModal: React.FC<EnrollConexaoModalProps> = ({
     setSuccessMsg(null);
 
     try {
+      const finalColor = isTeamLeader && assignedTeamColor ? assignedTeamColor : color;
       const membership: ConexaoMembership = {
-        color,
+        color: finalColor,
         role,
         baseName: baseName.trim() || undefined,
       };
@@ -124,7 +133,7 @@ export const EnrollConexaoModal: React.FC<EnrollConexaoModalProps> = ({
       setSuccessMsg(
         isEditing
           ? 'Dados do Conexão Jovem atualizados com sucesso!'
-          : `${activeContact.name} foi vinculado à Equipe ${CONEXAO_COLOR_CONFIGS[color].name.toUpperCase()} do Conexão Jovem!`
+          : `${activeContact.name} foi vinculado à Equipe ${CONEXAO_COLOR_CONFIGS[finalColor].name.toUpperCase()} do Conexão Jovem!`
       );
 
       setTimeout(() => {
@@ -280,40 +289,56 @@ export const EnrollConexaoModal: React.FC<EnrollConexaoModalProps> = ({
           )}
         </div>
 
-        {/* 2. Color Selection (6 Cores) */}
+        {/* 2. Color Selection (6 Cores ou Exclusivo da Equipe) */}
         <div className="space-y-2">
           <label className="text-xs font-semibold text-zinc-300 block">
             Cor da Equipe no Conexão Jovem:
           </label>
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-            {CONEXAO_COLORS.map(cId => {
-              const cfg = CONEXAO_COLOR_CONFIGS[cId];
-              const isSelected = color === cId;
-              return (
-                <button
-                  key={cId}
-                  type="button"
-                  onClick={() => setColor(cId)}
-                  className={`p-3 rounded-xl border text-left transition-all flex items-center gap-2.5 ${
-                    isSelected
-                      ? `bg-[#141414] border-2 ${cfg.glowClass}`
-                      : 'bg-[#0B0B0B] border-[#222222] hover:border-[#383838]'
-                  }`}
-                  style={{ borderColor: isSelected ? cfg.hex : undefined }}
-                >
-                  <span
-                    className="w-4 h-4 rounded-full shrink-0 shadow-sm"
-                    style={{ backgroundColor: cfg.hex }}
-                  />
-                  <div className="min-w-0">
-                    <span className="text-xs font-black text-white capitalize block leading-tight">
-                      {cfg.displayName}
-                    </span>
-                  </div>
-                </button>
-              );
-            })}
-          </div>
+          {isTeamLeader && assignedTeamColor ? (
+            <div className="flex items-center gap-2.5 p-3 rounded-xl border border-white/20 bg-zinc-900">
+              <span
+                className="w-4 h-4 rounded-full shadow-md"
+                style={{ backgroundColor: CONEXAO_COLOR_CONFIGS[assignedTeamColor].hex }}
+              />
+              <span className="text-xs font-bold text-white uppercase">
+                {CONEXAO_COLOR_CONFIGS[assignedTeamColor].displayName}
+              </span>
+              <span className="text-[10px] text-zinc-400 ml-auto flex items-center gap-1">
+                <Lock className="w-3 h-3 text-amber-400" />
+                Sua equipe autorizada
+              </span>
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+              {CONEXAO_COLORS.map(cId => {
+                const cfg = CONEXAO_COLOR_CONFIGS[cId];
+                const isSelected = color === cId;
+                return (
+                  <button
+                    key={cId}
+                    type="button"
+                    onClick={() => setColor(cId)}
+                    className={`p-3 rounded-xl border text-left transition-all flex items-center gap-2.5 ${
+                      isSelected
+                        ? `bg-[#141414] border-2 ${cfg.glowClass}`
+                        : 'bg-[#0B0B0B] border-[#222222] hover:border-[#383838]'
+                    }`}
+                    style={{ borderColor: isSelected ? cfg.hex : undefined }}
+                  >
+                    <span
+                      className="w-4 h-4 rounded-full shrink-0 shadow-sm"
+                      style={{ backgroundColor: cfg.hex }}
+                    />
+                    <div className="min-w-0">
+                      <span className="text-xs font-black text-white capitalize block leading-tight">
+                        {cfg.displayName}
+                      </span>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </div>
 
         {/* 3. Role Selection */}

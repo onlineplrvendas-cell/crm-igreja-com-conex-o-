@@ -1,5 +1,6 @@
 import React from 'react';
 import { useCRM } from '../context/CRMContext';
+import { useAuth } from '../context/AuthContext';
 import { Congregation, MainTab } from '../types';
 import {
   Church,
@@ -100,7 +101,13 @@ export const ChurchesPage: React.FC<ChurchesPageProps> = ({
     uniReinoStudents,
     selectedCongregation,
     setSelectedCongregation,
+    authorizedCongregations,
   } = useCRM();
+  const { currentUser } = useAuth();
+
+  const visibleUnits = CHURCH_UNITS.filter(unit =>
+    authorizedCongregations.includes(unit.id)
+  );
 
   // Helper to compute unit statistics
   const getUnitMetrics = (congregation: Congregation) => {
@@ -237,7 +244,7 @@ export const ChurchesPage: React.FC<ChurchesPageProps> = ({
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-          {CHURCH_UNITS.map(unit => {
+          {visibleUnits.map(unit => {
             const m = getUnitMetrics(unit.id);
             const isCurrentlySelected = selectedCongregation === unit.id;
 

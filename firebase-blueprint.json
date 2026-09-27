@@ -83,6 +83,22 @@
         "updatedAt": { "type": "string", "format": "date-time" }
       },
       "required": ["contactId", "contactName", "congregation", "description", "dueDate", "status"]
+    },
+    "WeeklyConfirmationReport": {
+      "title": "WeeklyConfirmationReport",
+      "description": "Weekly confirmation and attendance tracking report",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "weekKey": { "type": "string", "maxLength": 30 },
+        "weekLabel": { "type": "string", "maxLength": 150 },
+        "startDate": { "type": "string", "maxLength": 30 },
+        "endDate": { "type": "string", "maxLength": 30 },
+        "congregation": { "type": "string", "maxLength": 50 },
+        "savedAt": { "type": "string", "format": "date-time" },
+        "savedBy": { "type": "string", "maxLength": 150 }
+      },
+      "required": ["id", "weekKey", "startDate", "endDate", "congregation"]
     }
   },
   "firestore": {
@@ -101,6 +117,11 @@
     "/tasks/{taskId}": {
       "schema": { "$ref": "#/entities/Task" },
       "description": "Follow-up schedule and pending returns"
+    },
+    "/weekly_confirmations/{reportId}": {
+      "schema": { "$ref": "#/entities/WeeklyConfirmationReport" },
+      "description": "Weekly confirmations and attendance tracking history"
     }
   }
 }
+

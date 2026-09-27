@@ -11,8 +11,10 @@ import { FollowUpPage } from './pages/FollowUpPage';
 import { TeamAccessPage } from './pages/TeamAccessPage';
 import { ChangePasswordPage } from './pages/ChangePasswordPage';
 import { ChurchesPage } from './pages/ChurchesPage';
+import { ConfirmadosSemanaPage } from './pages/ConfirmadosSemanaPage';
 import { UniReinoPage } from './pages/UniReinoPage';
 import { ConexaoJovemPage } from './pages/ConexaoJovemPage';
+import { CuricicaFamiliesPage } from './pages/CuricicaFamiliesPage';
 import { ContactFormModal } from './components/ContactFormModal';
 import { ContactDetailsDrawer } from './components/ContactDetailsDrawer';
 import { InteractionModal } from './components/InteractionModal';
@@ -21,6 +23,7 @@ import { TeamMemberModal } from './components/TeamMemberModal';
 import { DeleteConfirmationModal } from './components/DeleteConfirmationModal';
 import { SetupInstructionsModal } from './components/SetupInstructionsModal';
 import { Contact, Task, MainTab, UserProfile } from './types';
+import { getAllowedTabsForUser, getDefaultTabForUser } from './utils/permissions';
 
 const MainCRMApp: React.FC = () => {
   const { currentUser, isLoading, isDemoMode } = useAuth();
@@ -55,12 +58,18 @@ const MainCRMApp: React.FC = () => {
     return () => clearTimeout(timer);
   }, [isDemoMode]);
 
+  // Permissions & Allowed tabs for current user
+  const allowedTabs = React.useMemo(() => getAllowedTabsForUser(currentUser), [currentUser]);
+
   // Navigation state persisted across mode changes and page reloads
   const [activeTab, setActiveTabState] = useState<MainTab>(() => {
     const saved = localStorage.getItem('casadedeus_active_tab') as MainTab | null;
+    const defaultTab = getDefaultTabForUser(currentUser);
     const validTabs: MainTab[] = [
       'dashboard',
       'igrejas',
+      'curicica',
+      'confirmados',
       'conexaojovem',
       'contacts',
       'unireino',
@@ -71,13 +80,24 @@ const MainCRMApp: React.FC = () => {
     if (saved && validTabs.includes(saved)) {
       return saved;
     }
-    return 'dashboard';
+    return defaultTab;
   });
 
   const setActiveTab = (tab: MainTab) => {
     localStorage.setItem('casadedeus_active_tab', tab);
     setActiveTabState(tab);
   };
+
+  // Enforce access control guard: If activeTab is not permitted, immediately redirect to default allowed tab
+  useEffect(() => {
+    if (currentUser && allowedTabs.length > 0) {
+      if (!allowedTabs.includes(activeTab)) {
+        const defaultTab = getDefaultTabForUser(currentUser);
+        setActiveTab(defaultTab);
+      }
+    }
+  }, [currentUser, allowedTabs, activeTab]);
+
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   // Modals state
@@ -235,12 +255,34 @@ const MainCRMApp: React.FC = () => {
               onOpenContactDetails={openContactDetails}
               onNavigateToIgrejas={() => setActiveTab('igrejas')}
               onNavigateToConexao={() => setActiveTab('conexaojovem')}
+              onNavigateToConfirmados={() => setActiveTab('confirmados')}
             />
           )}
 
           {activeTab === 'igrejas' && (
             <ChurchesPage
               onNavigateToTab={(tab) => setActiveTab(tab)}
+              onOpenNewContact={() => {
+                setContactToEdit(null);
+                setIsNewContactOpen(true);
+              }}
+            />
+          )}
+
+          {activeTab === 'curicica' && (
+            <CuricicaFamiliesPage
+              onOpenContactDetails={openContactDetails}
+              onOpenNewContact={(defaultFamily) => {
+                setContactToEdit(null);
+                setIsNewContactOpen(true);
+              }}
+              onOpenNewInteraction={handleOpenNewInteraction}
+            />
+          )}
+
+          {activeTab === 'confirmados' && (
+            <ConfirmadosSemanaPage
+              onOpenContactDetails={openContactDetails}
               onOpenNewContact={() => {
                 setContactToEdit(null);
                 setIsNewContactOpen(true);

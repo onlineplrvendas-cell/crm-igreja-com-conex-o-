@@ -20,7 +20,7 @@ interface AuthContextType {
   logout: () => Promise<void>;
   changePassword: (currentPassword: string, newPassword: string) => Promise<void>;
   sendResetPassword: (email: string) => Promise<void>;
-  enterDemoMode: (asRole?: 'admin' | 'equipe') => void;
+  enterDemoMode: (asUserUidOrRole?: string) => void;
   switchDemoUser: (uid: string) => void;
   clearAuthError: () => void;
   toggleDemoMode: () => void;
@@ -29,29 +29,39 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-const DEMO_AUTH_KEY = 'casadedeus_demo_user_uid';
+const ACTIVE_USER_KEY = 'casadedeus_active_user_uid';
 const DEMO_MODE_ACTIVE_KEY = 'casadedeus_is_demo_mode';
+const SESSION_ACTIVE_KEY = 'casadedeus_session_active';
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(() => {
+    // Only restore session if the user explicitly authenticated in the current browser session
+    const isSessionActive = sessionStorage.getItem(SESSION_ACTIVE_KEY) === 'true';
+    const savedActiveUid = sessionStorage.getItem(ACTIVE_USER_KEY);
+    if (!isSessionActive || !savedActiveUid) {
+      // Clean up any stale localStorage tokens so the user starts at Login screen
+      try {
+        localStorage.removeItem(ACTIVE_USER_KEY);
+      } catch {}
+      return null;
+    }
     const saved = localStorage.getItem(DEMO_MODE_ACTIVE_KEY);
     const demoActive = saved !== null ? saved === 'true' : !isFirebaseConfigured;
     if (demoActive) {
-      const savedUid = localStorage.getItem(DEMO_AUTH_KEY) || 'admin-1';
-      return DEMO_USERS.find(u => u.uid === savedUid) || DEMO_USERS[0];
+      return DEMO_USERS.find(u => u.uid === savedActiveUid) || null;
     }
-    const savedRealUserStr = localStorage.getItem('casadedeus_real_user_session');
+    const savedRealUserStr = sessionStorage.getItem('casadedeus_real_user_session') || localStorage.getItem('casadedeus_real_user_session');
     if (savedRealUserStr) {
       try {
         const parsed = JSON.parse(savedRealUserStr);
-        if (parsed && parsed.uid) return parsed;
+        if (parsed && parsed.uid === savedActiveUid) return parsed;
       } catch {}
     }
     const realUsers = realManager.getUsers();
-    return realUsers[0] || null;
+    return realUsers.find(u => u.uid === savedActiveUid) || null;
   });
+
   const [isDemoMode, setIsDemoMode] = useState<boolean>(() => {
-    // Default to true if not configured yet so the church team can explore immediately
     const saved = localStorage.getItem(DEMO_MODE_ACTIVE_KEY);
     if (saved !== null) return saved === 'true';
     return !isFirebaseConfigured;
@@ -60,25 +70,34 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [authError, setAuthError] = useState<string | null>(null);
 
   useEffect(() => {
+    const isSessionActive = sessionStorage.getItem(SESSION_ACTIVE_KEY) === 'true';
+    const savedActiveUid = sessionStorage.getItem(ACTIVE_USER_KEY);
+    // If no user is logged in for this session, DO NOT auto-log in! Keep at login screen!
+    if (!isSessionActive || !savedActiveUid) {
+      setCurrentUser(null);
+      setIsLoading(false);
+      return;
+    }
+
     if (isDemoMode) {
-      const savedUid = localStorage.getItem(DEMO_AUTH_KEY) || 'admin-1';
-      const found = DEMO_USERS.find(u => u.uid === savedUid) || DEMO_USERS[0];
-      setCurrentUser(found);
+      const found = DEMO_USERS.find(u => u.uid === savedActiveUid);
+      setCurrentUser(found || null);
       setIsLoading(false);
       return;
     }
 
     // In Real Mode (Demo is OFF): Check saved real user session first
-    const savedRealUserStr = localStorage.getItem('casadedeus_real_user_session');
+    const savedRealUserStr = sessionStorage.getItem('casadedeus_real_user_session') || localStorage.getItem('casadedeus_real_user_session');
     if (savedRealUserStr) {
       try {
         const parsed = JSON.parse(savedRealUserStr);
-        if (parsed && parsed.uid) {
+        if (parsed && parsed.uid === savedActiveUid) {
           setCurrentUser(parsed);
           setIsLoading(false);
           return;
         }
       } catch {
+        sessionStorage.removeItem('casadedeus_real_user_session');
         localStorage.removeItem('casadedeus_real_user_session');
       }
     }
@@ -96,30 +115,34 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             active: true,
           };
           setCurrentUser(userProfile);
+          sessionStorage.setItem(SESSION_ACTIVE_KEY, 'true');
+          sessionStorage.setItem(ACTIVE_USER_KEY, fbUser.uid);
         } else {
-          // If no fbUser, maintain real session if present
           const realUsers = realManager.getUsers();
-          if (realUsers.length > 0) {
-            setCurrentUser(realUsers[0]);
-          }
+          const found = realUsers.find(u => u.uid === savedActiveUid);
+          setCurrentUser(found || null);
         }
         setIsLoading(false);
       });
       return () => unsubscribe();
     }
 
-    // If no Firebase active, maintain real manager master user so user stays logged in
     const realUsers = realManager.getUsers();
-    if (realUsers.length > 0) {
-      setCurrentUser(realUsers[0]);
-    }
+    const found = realUsers.find(u => u.uid === savedActiveUid);
+    setCurrentUser(found || null);
     setIsLoading(false);
   }, [isDemoMode]);
 
-  const enterDemoMode = (asRole: 'admin' | 'equipe' = 'admin') => {
-    const user = DEMO_USERS.find(u => u.role === asRole) || DEMO_USERS[0];
+  const enterDemoMode = (asUserUidOrRole: string = 'admin') => {
+    // Can accept either role ('admin', 'equipe') or a specific user UID (e.g. 'lider-familia-1', 'lider-equipe-azul')
+    const user = DEMO_USERS.find(u => u.uid === asUserUidOrRole) ||
+      DEMO_USERS.find(u => u.role === asUserUidOrRole) ||
+      DEMO_USERS[0];
+
     localStorage.setItem(DEMO_MODE_ACTIVE_KEY, 'true');
-    localStorage.setItem(DEMO_AUTH_KEY, user.uid);
+    sessionStorage.setItem(SESSION_ACTIVE_KEY, 'true');
+    sessionStorage.setItem(ACTIVE_USER_KEY, user.uid);
+    localStorage.setItem(ACTIVE_USER_KEY, user.uid);
     setIsDemoMode(true);
     setCurrentUser(user);
     setAuthError(null);
@@ -128,7 +151,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const switchDemoUser = (uid: string) => {
     const found = DEMO_USERS.find(u => u.uid === uid);
     if (found) {
-      localStorage.setItem(DEMO_AUTH_KEY, uid);
+      sessionStorage.setItem(SESSION_ACTIVE_KEY, 'true');
+      sessionStorage.setItem(ACTIVE_USER_KEY, uid);
+      localStorage.setItem(ACTIVE_USER_KEY, uid);
       setCurrentUser(found);
     }
   };
@@ -178,10 +203,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           throw new Error('Acesso bloqueado: Este usuário foi desativado pelo Pr. Bruno Bitencourt.');
         }
 
+        sessionStorage.setItem(SESSION_ACTIVE_KEY, 'true');
+        sessionStorage.setItem(ACTIVE_USER_KEY, matchedUser.uid);
+        localStorage.setItem(ACTIVE_USER_KEY, matchedUser.uid);
         if (!isDemoMode) {
+          sessionStorage.setItem('casadedeus_real_user_session', JSON.stringify(matchedUser));
           localStorage.setItem('casadedeus_real_user_session', JSON.stringify(matchedUser));
-        } else {
-          localStorage.setItem(DEMO_AUTH_KEY, matchedUser.uid);
         }
         setCurrentUser(matchedUser);
         setIsLoading(false);
@@ -276,10 +303,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setCurrentUser(updatedUser);
 
     // 4. Update session storage so page refresh retains updated password
+    localStorage.setItem(ACTIVE_USER_KEY, updatedUser.uid);
     if (!isDemoMode) {
       localStorage.setItem('casadedeus_real_user_session', JSON.stringify(updatedUser));
-    } else {
-      localStorage.setItem(DEMO_AUTH_KEY, updatedUser.uid);
     }
   };
 
@@ -289,7 +315,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         await signOut(auth);
       }
       setCurrentUser(null);
-      localStorage.removeItem(DEMO_AUTH_KEY);
+      sessionStorage.removeItem(SESSION_ACTIVE_KEY);
+      sessionStorage.removeItem(ACTIVE_USER_KEY);
+      sessionStorage.removeItem('casadedeus_real_user_session');
+      localStorage.removeItem(ACTIVE_USER_KEY);
+      localStorage.removeItem('casadedeus_demo_user_uid');
       localStorage.removeItem('casadedeus_real_user_session');
     } finally {
       setAuthError(null);
@@ -315,7 +345,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     localStorage.setItem(DEMO_MODE_ACTIVE_KEY, enabled ? 'true' : 'false');
     setIsDemoMode(enabled);
     if (enabled) {
-      const savedUid = localStorage.getItem(DEMO_AUTH_KEY) || 'admin-1';
+      const savedUid = localStorage.getItem(ACTIVE_USER_KEY) || 'admin-1';
       const found = DEMO_USERS.find(u => u.uid === savedUid) || DEMO_USERS[0];
       setCurrentUser(found);
       setAuthError(null);

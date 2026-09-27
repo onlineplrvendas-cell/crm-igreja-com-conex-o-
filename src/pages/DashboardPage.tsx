@@ -14,6 +14,7 @@ import {
   ChevronRight,
   Crown,
   Church,
+  CheckCheck,
 } from 'lucide-react';
 import { ConexaoLogo } from '../components/ConexaoLogo';
 import { UniReinoBadge } from '../components/UniReinoBadge';
@@ -35,6 +36,7 @@ interface DashboardPageProps {
   onOpenContactDetails: (contact: Contact) => void;
   onNavigateToIgrejas?: () => void;
   onNavigateToConexao?: () => void;
+  onNavigateToConfirmados?: () => void;
 }
 
 export const DashboardPage: React.FC<DashboardPageProps> = ({
@@ -44,6 +46,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
   onOpenContactDetails,
   onNavigateToIgrejas,
   onNavigateToConexao,
+  onNavigateToConfirmados,
 }) => {
   const {
     metrics,
@@ -54,6 +57,8 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
     contacts,
     conexaoParticipants,
   } = useCRM();
+
+  const confirmedCount = contacts.filter(c => c.confirmedThisWeek && !c.isArchived).length;
 
   const getCongregationTitle = () => {
     if (selectedCongregation === 'all') return 'Todas as Congregações (Visão Consolidada)';
@@ -160,6 +165,35 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
               Atrasados: <strong>{metrics.pendingReturnsOverdue}</strong>
             </span>
           </div>
+        </div>
+      </div>
+
+      {/* Quick Weekly Confirmation Banner */}
+      <div
+        onClick={onNavigateToConfirmados}
+        className="p-4 bg-gradient-to-r from-[#0C1510] via-[#0E0E0E] to-[#0A0A0A] border border-emerald-500/25 hover:border-emerald-500/50 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 cursor-pointer transition-all group shadow-sm hover:shadow-emerald-950/20"
+      >
+        <div className="flex items-center gap-3.5">
+          <span className="p-2.5 bg-emerald-500/10 border border-emerald-500/30 rounded-xl text-emerald-400 group-hover:scale-105 transition-transform shrink-0">
+            <CheckCheck className="w-5 h-5" />
+          </span>
+          <div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <h3 className="text-sm font-bold text-white group-hover:text-emerald-300 transition-colors">
+                Confirmados da Semana para o Culto
+              </h3>
+              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                {confirmedCount} confirmados
+              </span>
+            </div>
+            <p className="text-xs text-[#888888] mt-0.5">
+              Acompanhe a lista de membros, visitantes e convidados para o culto, registre justificativas de ausência e audite o histórico.
+            </p>
+          </div>
+        </div>
+        <div className="flex items-center gap-1 text-xs font-semibold text-emerald-400 shrink-0 self-end sm:self-center">
+          <span>Abrir Painel</span>
+          <ChevronRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
         </div>
       </div>
 

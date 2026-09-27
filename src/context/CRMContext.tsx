@@ -18,11 +18,14 @@ import {
   ConexaoColor,
   ConexaoTeamGoal,
   ConexaoMonthlyResult,
+  WeeklyConfirmationReport,
+  WeeklyConfirmationEntry,
 } from '../types';
 import { useAuth } from './AuthContext';
 import { CRMService, demoManager, realManager } from '../services/storage';
 import { isCurrentMonthInSP, getTaskDueState, getLast6Months } from '../utils/date';
 import { getOnlyDigits, normalizePhone } from '../utils/phone';
+import { generateEmptyConexaoMonthlyResults } from '../data/mockData';
 
 interface CRMContextType {
   contacts: Contact[];
@@ -103,6 +106,10 @@ interface CRMContextType {
   updateConexaoGoal: (color: ConexaoColor, updates: Partial<ConexaoTeamGoal>) => Promise<ConexaoTeamGoal>;
   conexaoMonthlyResults: Record<ConexaoColor, ConexaoMonthlyResult[]>;
   updateConexaoMonthlyResult: (color: ConexaoColor, monthIndex: number, updates: Partial<ConexaoMonthlyResult>) => Promise<void>;
+  weeklyReports: WeeklyConfirmationReport[];
+  saveWeeklyReport: (report: WeeklyConfirmationReport) => Promise<WeeklyConfirmationReport>;
+  getWeeklyReport: (weekKey: string, cong?: CongregationFilter) => WeeklyConfirmationReport | undefined;
+  deleteWeeklyReport: (id: string) => Promise<void>;
 }
 
 const CRMContext = createContext<CRMContextType | undefined>(undefined);
@@ -127,6 +134,7 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [rawConexaoParticipants, setRawConexaoParticipants] = useState<ConexaoParticipant[]>([]);
   const [rawConexaoGoals, setRawConexaoGoals] = useState<Record<ConexaoColor, ConexaoTeamGoal>>({} as any);
   const [rawConexaoMonthlyResults, setRawConexaoMonthlyResults] = useState<Record<ConexaoColor, ConexaoMonthlyResult[]>>({} as any);
+  const [rawWeeklyReports, setRawWeeklyReports] = useState<WeeklyConfirmationReport[]>([]);
   const [selectedContact, setSelectedContact] = useState<Contact | null>(null);
   const [isContactDrawerOpen, setIsContactDrawerOpen] = useState(false);
 
@@ -141,19 +149,30 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       : ['Recreio'];
   }, [currentUser]);
 
-  // Selected congregation filter
-  const [selectedCongregation, setSelectedCongregation] = useState<CongregationFilter>(() => {
-    if (currentUser?.role === 'equipe' && authorizedCongregations.length === 1) {
-      return authorizedCongregations[0];
+  // Selected congregation filter: Non-master users CANNOT select 'all'
+  const [selectedCongregation, setSelectedCongregationState] = useState<CongregationFilter>(() => {
+    if (!currentUser || currentUser.role !== 'admin') {
+      return authorizedCongregations[0] || 'Curicica';
     }
     return 'all';
   });
 
-  // Ensure selectedCongregation is valid when user changes
+  const setSelectedCongregation = (cong: CongregationFilter) => {
+    if (!currentUser || currentUser.role !== 'admin') {
+      // Non-master cannot choose 'all' or unauthorized congregations
+      if (cong === 'all' || !authorizedCongregations.includes(cong as Congregation)) {
+        setSelectedCongregationState(authorizedCongregations[0] || 'Curicica');
+        return;
+      }
+    }
+    setSelectedCongregationState(cong);
+  };
+
+  // Ensure selectedCongregation is strictly aligned with user's permissions
   useEffect(() => {
-    if (currentUser?.role === 'equipe') {
-      if (selectedCongregation !== 'all' && !authorizedCongregations.includes(selectedCongregation as Congregation)) {
-        setSelectedCongregation(authorizedCongregations[0] || 'all');
+    if (!currentUser || currentUser.role !== 'admin') {
+      if (selectedCongregation === 'all' || !authorizedCongregations.includes(selectedCongregation as Congregation)) {
+        setSelectedCongregationState(authorizedCongregations[0] || 'Curicica');
       }
     }
   }, [currentUser, authorizedCongregations, selectedCongregation]);
@@ -175,9 +194,15 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setRawTasks(activeManager.getTasks());
       setRawInteractions(activeManager.getInteractions());
       setRawUsers(activeManager.getUsers());
-      setRawConexaoParticipants(activeManager.getConexaoParticipants());
+      const participants = activeManager.getConexaoParticipants();
+      setRawConexaoParticipants(participants);
       setRawConexaoGoals(activeManager.getConexaoGoals());
-      setRawConexaoMonthlyResults(activeManager.getConexaoMonthlyResults());
+      if (!isDemoMode && (!participants || participants.length === 0)) {
+        setRawConexaoMonthlyResults(generateEmptyConexaoMonthlyResults());
+      } else {
+        setRawConexaoMonthlyResults(activeManager.getConexaoMonthlyResults());
+      }
+      setRawWeeklyReports(activeManager.getWeeklyReports());
 
       // If a contact was open in the drawer, verify it exists in current dataset
       setSelectedContact(prev => {
@@ -195,18 +220,44 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return () => unsub();
   }, [isDemoMode]);
 
-  // Filter raw data by user authorization first (security boundary)
+  // Filter raw data by user authorization first (strict security & privacy boundary)
   const scopedContacts = useMemo(() => {
-    return rawContacts.filter(c => authorizedCongregations.includes(c.congregation));
-  }, [rawContacts, authorizedCongregations]);
+    return rawContacts.filter(c => {
+      // 1. Congregation boundary
+      if (!authorizedCongregations.includes(c.congregation)) {
+        return false;
+      }
+      // 2. Curicica Family boundary: Líder de Família ONLY sees their own family
+      if (currentUser?.role === 'lider_familia' && currentUser.assignedCuricicaFamily) {
+        if (c.congregation !== 'Curicica' || c.curicicaFamily !== currentUser.assignedCuricicaFamily) {
+          return false;
+        }
+      }
+      return true;
+    });
+  }, [rawContacts, authorizedCongregations, currentUser]);
+
+  const scopedContactIds = useMemo(() => new Set(scopedContacts.map(c => c.id)), [scopedContacts]);
 
   const scopedTasks = useMemo(() => {
-    return rawTasks.filter(t => authorizedCongregations.includes(t.congregation));
-  }, [rawTasks, authorizedCongregations]);
+    return rawTasks.filter(t => {
+      if (!authorizedCongregations.includes(t.congregation)) return false;
+      if (currentUser?.role === 'lider_familia') {
+        return scopedContactIds.has(t.contactId);
+      }
+      return true;
+    });
+  }, [rawTasks, authorizedCongregations, currentUser, scopedContactIds]);
 
   const scopedInteractions = useMemo(() => {
-    return rawInteractions.filter(i => authorizedCongregations.includes(i.congregation));
-  }, [rawInteractions, authorizedCongregations]);
+    return rawInteractions.filter(i => {
+      if (!authorizedCongregations.includes(i.congregation)) return false;
+      if (currentUser?.role === 'lider_familia') {
+        return scopedContactIds.has(i.contactId);
+      }
+      return true;
+    });
+  }, [rawInteractions, authorizedCongregations, currentUser, scopedContactIds]);
 
   // Apply selected Congregation filter
   const congregationFilteredContacts = useMemo(() => {
@@ -224,14 +275,57 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return scopedInteractions.filter(i => i.congregation === selectedCongregation);
   }, [scopedInteractions, selectedCongregation]);
 
+  // Conexão Participants: Team leader only sees their color; others filtered by congregation
   const scopedConexaoParticipants = useMemo(() => {
-    return rawConexaoParticipants.filter(p => authorizedCongregations.includes(p.congregation));
-  }, [rawConexaoParticipants, authorizedCongregations]);
+    return rawConexaoParticipants.filter(p => {
+      // 1. Team Leader strictly restricted to their assigned team color
+      if (currentUser?.role === 'lider_equipe' && currentUser.assignedTeam) {
+        if (p.color !== currentUser.assignedTeam) {
+          return false;
+        }
+      }
+      // 2. Congregation check if applicable
+      if (currentUser?.role !== 'admin' && currentUser?.role !== 'lider_conexao' && currentUser?.role !== 'lider_equipe') {
+        if (!authorizedCongregations.includes(p.congregation)) {
+          return false;
+        }
+      }
+      return true;
+    });
+  }, [rawConexaoParticipants, authorizedCongregations, currentUser]);
 
   const conexaoParticipants = useMemo(() => {
+    if (currentUser?.role === 'lider_equipe') return scopedConexaoParticipants;
     if (selectedCongregation === 'all') return scopedConexaoParticipants;
     return scopedConexaoParticipants.filter(p => p.congregation === selectedCongregation);
-  }, [scopedConexaoParticipants, selectedCongregation]);
+  }, [scopedConexaoParticipants, selectedCongregation, currentUser]);
+
+  // Weekly reports scoped by congregation and family
+  const scopedWeeklyReports = useMemo(() => {
+    return rawWeeklyReports
+      .filter(r => {
+        if (currentUser?.role === 'admin') return true;
+        if (r.congregation === 'all') return false; // Non-master cannot see consolidated report
+        return authorizedCongregations.includes(r.congregation as Congregation);
+      })
+      .map(r => {
+        if (currentUser?.role === 'lider_familia' && currentUser.assignedCuricicaFamily) {
+          const familyContactIds = new Set(scopedContacts.map(c => c.id));
+          const filteredEntries = r.entries.filter(e => familyContactIds.has(e.contactId));
+          return {
+            ...r,
+            entries: filteredEntries,
+            summary: {
+              ...r.summary,
+              total: filteredEntries.length,
+              confirmed: filteredEntries.filter(e => e.status === 'confirmed').length,
+              unconfirmed: filteredEntries.filter(e => e.status === 'unconfirmed').length,
+            },
+          };
+        }
+        return r;
+      });
+  }, [rawWeeklyReports, currentUser, authorizedCongregations, scopedContacts]);
 
   // Tab counts for the congregation tabs: Membros, Convidados/Visitantes, Confirmados da Semana
   const tabCounts = useMemo(() => {
@@ -413,10 +507,23 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     contactData: Omit<Contact, 'id' | 'createdAt' | 'updatedAt' | 'createdBy' | 'isArchived' | 'normalizedPhone'>,
     firstReturn?: { description: string; dueDate: string; assignedToId?: string; assignedToName?: string }
   ): Promise<Contact> => {
+    // Enforce congregation & family permissions on create
+    let finalCongregation = contactData.congregation;
+    let finalFamily = contactData.curicicaFamily;
+
+    if (currentUser?.role === 'lider_familia' && currentUser.assignedCuricicaFamily) {
+      finalCongregation = 'Curicica';
+      finalFamily = currentUser.assignedCuricicaFamily;
+    } else if (currentUser?.role !== 'admin' && authorizedCongregations.length === 1) {
+      finalCongregation = authorizedCongregations[0];
+    }
+
     const normalizedPhone = normalizePhone(contactData.phone);
     const newContact = await CRMService.createContact(
       {
         ...contactData,
+        congregation: finalCongregation,
+        curicicaFamily: finalFamily,
         normalizedPhone,
         isArchived: false,
         createdBy: currentUser?.uid || 'user',
@@ -648,7 +755,14 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const addConexaoParticipant = async (
     participant: Omit<ConexaoParticipant, 'id' | 'createdAt' | 'updatedAt'>
   ): Promise<ConexaoParticipant> => {
-    return CRMService.addConexaoParticipant(participant, isDemoMode);
+    let finalColor = participant.color;
+    if (currentUser?.role === 'lider_equipe' && currentUser.assignedTeam) {
+      finalColor = currentUser.assignedTeam as ConexaoColor;
+    }
+    return CRMService.addConexaoParticipant({
+      ...participant,
+      color: finalColor,
+    }, isDemoMode);
   };
 
   const updateConexaoParticipant = async (
@@ -685,12 +799,38 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return CRMService.updateConexaoMonthlyResult(color, monthIndex, updates, isDemoMode);
   };
 
+  const saveWeeklyReport = async (report: WeeklyConfirmationReport): Promise<WeeklyConfirmationReport> => {
+    const saved = await CRMService.saveWeeklyReport(report, isDemoMode);
+    setRawWeeklyReports(prev => {
+      const idx = prev.findIndex(
+        r => r.id === saved.id || (r.weekKey === saved.weekKey && r.congregation === saved.congregation)
+      );
+      if (idx >= 0) {
+        const copy = [...prev];
+        copy[idx] = saved;
+        return copy;
+      }
+      return [saved, ...prev];
+    });
+    return saved;
+  };
+
+  const getWeeklyReport = (weekKey: string, cong?: CongregationFilter): WeeklyConfirmationReport | undefined => {
+    const targetCong = cong || selectedCongregation;
+    return scopedWeeklyReports.find(r => r.weekKey === weekKey && (r.congregation === targetCong || r.congregation === 'all'));
+  };
+
+  const deleteWeeklyReport = async (id: string): Promise<void> => {
+    await CRMService.deleteWeeklyReport(id, isDemoMode);
+    setRawWeeklyReports(prev => prev.filter(r => r.id !== id));
+  };
+
   return (
     <CRMContext.Provider
       value={{
-        contacts: rawContacts,
-        tasks: rawTasks,
-        interactions: rawInteractions,
+        contacts: scopedContacts,
+        tasks: scopedTasks,
+        interactions: scopedInteractions,
         teamMembers,
         selectedCongregation,
         setSelectedCongregation,
@@ -705,6 +845,10 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         filteredContacts,
         activeViewTab,
         setActiveViewTab,
+        weeklyReports: scopedWeeklyReports,
+        saveWeeklyReport,
+        getWeeklyReport,
+        deleteWeeklyReport,
         tabCounts,
         toggleWeeklyConfirmation,
         createContact,

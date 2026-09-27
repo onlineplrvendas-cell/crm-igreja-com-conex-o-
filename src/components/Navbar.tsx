@@ -16,6 +16,8 @@ import {
   KeyRound,
 } from 'lucide-react';
 
+import { getUserPermissions, getUserRoleDisplayLabel } from '../utils/permissions';
+
 interface NavbarProps {
   onOpenMobileMenu: () => void;
   onOpenNewContact: () => void;
@@ -42,25 +44,46 @@ export const Navbar: React.FC<NavbarProps> = ({
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
   const [isCongDropdownOpen, setIsCongDropdownOpen] = useState(false);
 
-  const isAdmin = currentUser?.role === 'admin';
+  const perms = getUserPermissions(currentUser);
+  const isAdmin = perms.isMaster;
 
+  // Only Master can see 'all' (Todas as congregações / visão consolidada)
   const congregationOptions: { value: CongregationFilter; label: string }[] = [];
-  if (isAdmin) {
-    congregationOptions.push({ value: 'all', label: 'Visão Geral (Todas)' });
-  } else if (authorizedCongregations.length > 1) {
-    congregationOptions.push({ value: 'all', label: 'Minhas Congregações' });
+  if (perms.canAccessAllCongregationsOverview) {
+    congregationOptions.push({ value: 'all', label: 'Todas (Consolidada)' });
   }
 
   authorizedCongregations.forEach(cong => {
     congregationOptions.push({ value: cong, label: cong });
   });
 
-  const getSelectedLabel = () => {
-    if (selectedCongregation === 'all') {
-      return isAdmin ? 'Visão Geral (Todas)' : 'Minhas Congregações';
+  // Check if dropdown should be interactive (only if master or user has more than 1 authorized congregation)
+  const isSelectorInteractive =
+    currentUser?.role !== 'lider_equipe' &&
+    currentUser?.role !== 'lider_familia' &&
+    (perms.canAccessAllCongregationsOverview || authorizedCongregations.length > 1);
+
+  const getSelectorBadgeContent = () => {
+    if (currentUser?.role === 'lider_equipe') {
+      const teamName = currentUser.assignedTeam ? currentUser.assignedTeam.toUpperCase() : 'AZUL';
+      return { label: 'Conexão', value: `Equipe ${teamName}` };
     }
-    return selectedCongregation;
+    if (currentUser?.role === 'lider_familia') {
+      const famMap: Record<string, string> = {
+        familia_1: 'Família 1',
+        familia_2: 'Família 2',
+        familia_3: 'Família 3',
+      };
+      const famName = currentUser.assignedCuricicaFamily ? famMap[currentUser.assignedCuricicaFamily] || 'Família' : 'Família';
+      return { label: 'Curicica', value: famName };
+    }
+    if (selectedCongregation === 'all') {
+      return { label: 'Congregação', value: 'Todas (Consolidada)' };
+    }
+    return { label: 'Congregação', value: selectedCongregation };
   };
+
+  const badgeContent = getSelectorBadgeContent();
 
   return (
     <header className="sticky top-0 z-30 bg-[#000000]/95 backdrop-blur-md border-b border-[#262626] h-16 px-4 md:px-6 flex items-center justify-between">
@@ -82,18 +105,25 @@ export const Navbar: React.FC<NavbarProps> = ({
       {/* Middle: Congregation Selector */}
       <div className="flex items-center gap-3">
         <div className="relative">
-          <button
-            onClick={() => setIsCongDropdownOpen(!isCongDropdownOpen)}
-            className="flex items-center gap-2 px-3 py-1.5 text-xs md:text-sm font-medium bg-[#0B0B0B] border border-[#262626] rounded-lg text-white hover:border-[#383838] transition-colors focus:outline-none"
-            aria-haspopup="listbox"
-            aria-expanded={isCongDropdownOpen}
-          >
-            <span className="text-[#888888] hidden sm:inline">Congregação:</span>
-            <span className="font-semibold text-white tracking-wide">{getSelectedLabel()}</span>
-            <ChevronDown className={`w-3.5 h-3.5 text-[#999999] transition-transform ${isCongDropdownOpen ? 'rotate-180' : ''}`} />
-          </button>
+          {isSelectorInteractive ? (
+            <button
+              onClick={() => setIsCongDropdownOpen(!isCongDropdownOpen)}
+              className="flex items-center gap-2 px-3 py-1.5 text-xs md:text-sm font-medium bg-[#0B0B0B] border border-[#262626] rounded-lg text-white hover:border-[#383838] transition-colors focus:outline-none cursor-pointer"
+              aria-haspopup="listbox"
+              aria-expanded={isCongDropdownOpen}
+            >
+              <span className="text-[#888888] hidden sm:inline">{badgeContent.label}:</span>
+              <span className="font-semibold text-white tracking-wide">{badgeContent.value}</span>
+              <ChevronDown className={`w-3.5 h-3.5 text-[#999999] transition-transform ${isCongDropdownOpen ? 'rotate-180' : ''}`} />
+            </button>
+          ) : (
+            <div className="flex items-center gap-2 px-3 py-1.5 text-xs md:text-sm font-medium bg-[#0B0B0B] border border-[#262626] rounded-lg text-white">
+              <span className="text-[#888888] hidden sm:inline">{badgeContent.label}:</span>
+              <span className="font-semibold text-white tracking-wide">{badgeContent.value}</span>
+            </div>
+          )}
 
-          {isCongDropdownOpen && (
+          {isSelectorInteractive && isCongDropdownOpen && (
             <>
               <div
                 className="fixed inset-0 z-40"
@@ -101,7 +131,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               />
               <div className="absolute left-0 mt-1.5 w-56 bg-[#0B0B0B] border border-[#262626] rounded-lg shadow-xl py-1 z-50 text-xs md:text-sm">
                 <div className="px-3 py-1.5 text-[10px] uppercase font-bold tracking-wider text-[#666666] border-b border-[#1A1A1A]">
-                  Selecione a congregação
+                  Alternar congregação
                 </div>
                 {congregationOptions.map(opt => (
                   <button
@@ -110,7 +140,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                       setSelectedCongregation(opt.value);
                       setIsCongDropdownOpen(false);
                     }}
-                    className={`w-full text-left px-3 py-2 flex items-center justify-between hover:bg-[#141414] transition-colors ${
+                    className={`w-full text-left px-3 py-2 flex items-center justify-between hover:bg-[#141414] transition-colors cursor-pointer ${
                       selectedCongregation === opt.value ? 'text-white font-medium bg-[#141414]' : 'text-[#CCCCCC]'
                     }`}
                   >
@@ -204,11 +234,17 @@ export const Navbar: React.FC<NavbarProps> = ({
               />
               <div className="absolute right-0 mt-2 w-64 bg-[#0B0B0B] border border-[#262626] rounded-xl shadow-2xl py-2 z-50 text-xs">
                 {/* User info header */}
-                <div className="px-4 py-2.5 border-b border-[#1A1A1A]">
-                  <p className="font-semibold text-white">{currentUser?.name}</p>
-                  <p className="text-[11px] text-[#888888] truncate">{currentUser?.email}</p>
-                  <div className="mt-1.5 inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium bg-[#1A1A1A] text-[#CCCCCC] border border-[#262626]">
-                    Perfil: {currentUser?.role === 'admin' ? 'Administrador Geral' : 'Equipe de Atendimento'}
+                <div className="px-4 py-3 border-b border-[#1A1A1A]">
+                  <p className="text-sm font-semibold text-white leading-tight">
+                    {currentUser?.name}
+                  </p>
+                  <p className="text-xs text-[#888888] truncate mt-0.5">
+                    {currentUser?.email}
+                  </p>
+                  <div className="mt-2">
+                    <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold ${getUserRoleDisplayLabel(currentUser).badgeColor}`}>
+                      {getUserRoleDisplayLabel(currentUser).subtitle}
+                    </span>
                   </div>
                 </div>
 
@@ -242,36 +278,91 @@ export const Navbar: React.FC<NavbarProps> = ({
                 {/* Demo profile switcher (if demo mode) */}
                 {isDemoMode && (
                   <div className="px-3 py-2 border-b border-[#1A1A1A]">
-                    <div className="text-[10px] font-bold text-[#666666] uppercase tracking-wider mb-1.5 flex items-center gap-1">
-                      <SlidersHorizontal className="w-3 h-3" />
-                      Simular perfil de acesso:
+                    <div className="text-[10px] font-bold text-[#666666] uppercase tracking-wider mb-1.5 flex items-center justify-between">
+                      <span className="flex items-center gap-1">
+                        <SlidersHorizontal className="w-3 h-3 text-amber-400" />
+                        Simular Perfil:
+                      </span>
+                      <span className="text-[9px] text-zinc-500">1 clique</span>
                     </div>
-                    <div className="grid grid-cols-2 gap-1.5">
+                    <div className="grid grid-cols-2 gap-1.5 max-h-44 overflow-y-auto pr-0.5">
                       <button
                         onClick={() => {
                           switchDemoUser('admin-1');
                           setIsUserMenuOpen(false);
                         }}
-                        className={`px-2 py-1.5 rounded text-[11px] text-left transition-colors ${
-                          currentUser?.role === 'admin'
-                            ? 'bg-white text-black font-semibold'
+                        className={`px-2 py-1.5 rounded text-[11px] text-left transition-colors cursor-pointer ${
+                          currentUser?.uid === 'admin-1'
+                            ? 'bg-amber-400 text-black font-bold'
                             : 'bg-[#141414] text-[#CCCCCC] hover:text-white border border-[#262626]'
                         }`}
                       >
-                        Administrador
+                        Pr. Bruno (Master)
+                      </button>
+                      <button
+                        onClick={() => {
+                          switchDemoUser('admin-curicica');
+                          setIsUserMenuOpen(false);
+                        }}
+                        className={`px-2 py-1.5 rounded text-[11px] text-left transition-colors cursor-pointer ${
+                          currentUser?.uid === 'admin-curicica'
+                            ? 'bg-purple-400 text-black font-bold'
+                            : 'bg-[#141414] text-[#CCCCCC] hover:text-white border border-[#262626]'
+                        }`}
+                      >
+                        Coord. Curicica
+                      </button>
+                      <button
+                        onClick={() => {
+                          switchDemoUser('lider-familia-1');
+                          setIsUserMenuOpen(false);
+                        }}
+                        className={`px-2 py-1.5 rounded text-[11px] text-left transition-colors cursor-pointer ${
+                          currentUser?.uid === 'lider-familia-1'
+                            ? 'bg-emerald-400 text-black font-bold'
+                            : 'bg-[#141414] text-[#CCCCCC] hover:text-white border border-[#262626]'
+                        }`}
+                      >
+                        Líder Família 1
+                      </button>
+                      <button
+                        onClick={() => {
+                          switchDemoUser('lider-familia-2');
+                          setIsUserMenuOpen(false);
+                        }}
+                        className={`px-2 py-1.5 rounded text-[11px] text-left transition-colors cursor-pointer ${
+                          currentUser?.uid === 'lider-familia-2'
+                            ? 'bg-emerald-400 text-black font-bold'
+                            : 'bg-[#141414] text-[#CCCCCC] hover:text-white border border-[#262626]'
+                        }`}
+                      >
+                        Líder Família 2
+                      </button>
+                      <button
+                        onClick={() => {
+                          switchDemoUser('lider-equipe-azul');
+                          setIsUserMenuOpen(false);
+                        }}
+                        className={`px-2 py-1.5 rounded text-[11px] text-left transition-colors cursor-pointer ${
+                          currentUser?.uid === 'lider-equipe-azul'
+                            ? 'bg-blue-400 text-black font-bold'
+                            : 'bg-[#141414] text-[#CCCCCC] hover:text-white border border-[#262626]'
+                        }`}
+                      >
+                        Líder Equipe Azul
                       </button>
                       <button
                         onClick={() => {
                           switchDemoUser('equipe-recreio');
                           setIsUserMenuOpen(false);
                         }}
-                        className={`px-2 py-1.5 rounded text-[11px] text-left transition-colors ${
-                          currentUser?.role === 'equipe'
-                            ? 'bg-white text-black font-semibold'
+                        className={`px-2 py-1.5 rounded text-[11px] text-left transition-colors cursor-pointer ${
+                          currentUser?.uid === 'equipe-recreio'
+                            ? 'bg-white text-black font-bold'
                             : 'bg-[#141414] text-[#CCCCCC] hover:text-white border border-[#262626]'
                         }`}
                       >
-                        Equipe (Recreio)
+                        Equipe Recreio
                       </button>
                     </div>
 
@@ -280,7 +371,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                         resetDemoData();
                         setIsUserMenuOpen(false);
                       }}
-                      className="mt-2 w-full flex items-center justify-center gap-1.5 px-2 py-1 text-[11px] text-[#999999] hover:text-white bg-[#141414] hover:bg-[#1A1A1A] rounded border border-[#262626] transition-colors"
+                      className="mt-2 w-full flex items-center justify-center gap-1.5 px-2 py-1 text-[11px] text-[#999999] hover:text-white bg-[#141414] hover:bg-[#1A1A1A] rounded border border-[#262626] transition-colors cursor-pointer"
                     >
                       <RefreshCw className="w-3 h-3" />
                       Restaurar dados fictícios

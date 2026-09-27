@@ -7,10 +7,14 @@ import {
   UniReinoSemester,
   UniReinoStatus,
   ConexaoParticipant,
+  ConexaoInteraction,
   ConexaoMembership,
   ConexaoColor,
   ConexaoTeamGoal,
   ConexaoMonthlyResult,
+  WeeklyConfirmationReport,
+  WeeklyConfirmationEntry,
+  CongregationFilter,
 } from '../types';
 import { normalizePhone } from '../utils/phone';
 import {
@@ -19,6 +23,8 @@ import {
   generateInitialConexaoParticipants,
   generateInitialConexaoGoals,
   generateInitialConexaoMonthlyResults,
+  generateEmptyConexaoMonthlyResults,
+  generateInitialWeeklyReports,
 } from '../data/mockData';
 import {
   db,
@@ -46,6 +52,7 @@ interface DataStore {
   conexaoParticipants: ConexaoParticipant[];
   conexaoGoals?: Record<ConexaoColor, ConexaoTeamGoal>;
   conexaoMonthlyResults?: Record<ConexaoColor, ConexaoMonthlyResult[]>;
+  weeklyReports?: WeeklyConfirmationReport[];
 }
 
 export class PersistentDataManager {
@@ -72,7 +79,15 @@ export class PersistentDataManager {
           parsed.conexaoGoals = this.initialFactory().conexaoGoals || generateInitialConexaoGoals();
         }
         if (!parsed.conexaoMonthlyResults) {
-          parsed.conexaoMonthlyResults = this.initialFactory().conexaoMonthlyResults || generateInitialConexaoMonthlyResults();
+          parsed.conexaoMonthlyResults = this.initialFactory().conexaoMonthlyResults || (
+            this.storageKey === REAL_STORAGE_KEY ? generateEmptyConexaoMonthlyResults() : generateInitialConexaoMonthlyResults()
+          );
+        }
+        if (this.storageKey === REAL_STORAGE_KEY && (!parsed.conexaoParticipants || parsed.conexaoParticipants.length === 0)) {
+          parsed.conexaoMonthlyResults = generateEmptyConexaoMonthlyResults();
+        }
+        if (!parsed.weeklyReports) {
+          parsed.weeklyReports = this.initialFactory().weeklyReports || generateInitialWeeklyReports();
         }
         return parsed;
       }
@@ -425,7 +440,50 @@ export class PersistentDataManager {
 
   // --- CONEXÃO JOVEM METHODS ---
   public getConexaoParticipants(): ConexaoParticipant[] {
-    return [...(this.data.conexaoParticipants || [])];
+    const list = this.data.conexaoParticipants || [];
+    return list.map(p => {
+      let changed = false;
+      const copy: ConexaoParticipant = { ...p };
+
+      if (!copy.funnelStage) {
+        copy.funnelStage = copy.role === 'convidado' ? (copy.confirmedNextCulto ? 'em_acompanhamento' : 'novo_contato') : 'integrado';
+        changed = true;
+      }
+      if (!copy.responsibleName) {
+        copy.responsibleName = copy.baseLeaderName || copy.invitedByName || 'Líder da Equipe';
+        changed = true;
+      }
+      if (!copy.interactions || copy.interactions.length === 0) {
+        const dateStr = copy.firstVisitDate
+          ? copy.firstVisitDate.split('-').reverse().slice(0, 2).join('/')
+          : '12/09';
+        copy.interactions = [
+          {
+            id: `cx-int-init-${copy.id}`,
+            date: dateStr,
+            situation: copy.funnelStage === 'integrado' ? 'Integrado na equipe' : 'Novo contato',
+            notes: copy.notes || 'Início do acompanhamento no Conexão Jovem',
+            registeredBy: copy.responsibleName || 'Equipe',
+            createdAt: copy.createdAt || new Date().toISOString(),
+          },
+        ];
+        changed = true;
+      }
+      if (!copy.lastInteraction && copy.interactions && copy.interactions.length > 0) {
+        const last = copy.interactions[copy.interactions.length - 1];
+        copy.lastInteraction = `${last.date} - ${last.situation}`;
+        changed = true;
+      }
+
+      if (changed) {
+        const idx = this.data.conexaoParticipants.findIndex(x => x.id === copy.id);
+        if (idx !== -1) {
+          this.data.conexaoParticipants[idx] = copy;
+        }
+      }
+
+      return copy;
+    });
   }
 
   public addConexaoParticipant(
@@ -433,11 +491,34 @@ export class PersistentDataManager {
   ): ConexaoParticipant {
     const newId = `cx-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
     const now = new Date().toISOString();
+    const dateStr = new Date().toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
+    const initialStage = participant.funnelStage || (participant.role === 'convidado' ? 'novo_contato' : 'integrado');
+    const resp = participant.responsibleName || participant.baseLeaderName || participant.invitedByName || 'Líder da Equipe';
+
+    const initialInteractions: ConexaoInteraction[] = participant.interactions && participant.interactions.length > 0
+      ? participant.interactions
+      : [
+          {
+            id: `cx-int-${Date.now()}`,
+            date: dateStr,
+            situation: 'Novo contato',
+            notes: participant.notes || 'Cadastrado no Conexão Jovem',
+            registeredBy: resp,
+            createdAt: now,
+          },
+        ];
+
     const newParticipant: ConexaoParticipant = {
       ...participant,
       id: newId,
       points: participant.points ?? 50,
       confirmedNextCulto: participant.confirmedNextCulto ?? false,
+      funnelStage: initialStage,
+      responsibleName: resp,
+      lastInteraction: participant.lastInteraction || `${dateStr} - Novo contato`,
+      nextAction: participant.nextAction || 'Primeiro contato via WhatsApp',
+      nextReturnDate: participant.nextReturnDate || '',
+      interactions: initialInteractions,
       createdAt: now,
       updatedAt: now,
     };
@@ -624,8 +705,11 @@ export class PersistentDataManager {
 
   public getConexaoMonthlyResults(): Record<ConexaoColor, ConexaoMonthlyResult[]> {
     if (!this.data.conexaoMonthlyResults) {
-      this.data.conexaoMonthlyResults = generateInitialConexaoMonthlyResults();
+      this.data.conexaoMonthlyResults = this.storageKey === REAL_STORAGE_KEY ? generateEmptyConexaoMonthlyResults() : generateInitialConexaoMonthlyResults();
       this.saveToStorage(this.data);
+    }
+    if (this.storageKey === REAL_STORAGE_KEY && (!this.data.conexaoParticipants || this.data.conexaoParticipants.length === 0)) {
+      this.data.conexaoMonthlyResults = generateEmptyConexaoMonthlyResults();
     }
     return this.data.conexaoMonthlyResults;
   }
@@ -647,9 +731,52 @@ export class PersistentDataManager {
       this.notify();
     }
   }
+
+  public getWeeklyReports(congregation?: CongregationFilter): WeeklyConfirmationReport[] {
+    if (!this.data.weeklyReports) {
+      this.data.weeklyReports = generateInitialWeeklyReports();
+      this.saveToStorage(this.data);
+    }
+    if (!congregation || congregation === 'all') {
+      return [...this.data.weeklyReports];
+    }
+    return this.data.weeklyReports.filter(r => r.congregation === congregation || r.congregation === 'all');
+  }
+
+  public getWeeklyReport(weekKey: string, congregation: CongregationFilter): WeeklyConfirmationReport | undefined {
+    if (!this.data.weeklyReports) {
+      this.data.weeklyReports = generateInitialWeeklyReports();
+      this.saveToStorage(this.data);
+    }
+    return this.data.weeklyReports.find(r => r.weekKey === weekKey && r.congregation === congregation);
+  }
+
+  public saveWeeklyReport(report: WeeklyConfirmationReport): WeeklyConfirmationReport {
+    if (!this.data.weeklyReports) {
+      this.data.weeklyReports = [];
+    }
+    const idx = this.data.weeklyReports.findIndex(
+      r => r.id === report.id || (r.weekKey === report.weekKey && r.congregation === report.congregation)
+    );
+    if (idx >= 0) {
+      this.data.weeklyReports[idx] = report;
+    } else {
+      this.data.weeklyReports.unshift(report);
+    }
+    this.saveToStorage(this.data);
+    this.notify();
+    return report;
+  }
+
+  public deleteWeeklyReport(id: string): void {
+    if (!this.data.weeklyReports) return;
+    this.data.weeklyReports = this.data.weeklyReports.filter(r => r.id !== id);
+    this.saveToStorage(this.data);
+    this.notify();
+  }
 }
 
-// 1. Isolated Demo Data Manager (30 rich contacts + full Conexão Jovem colors data)
+// 1. Isolated Demo Data Manager (30 rich contacts + full Conexão Jovem colors data + weekly confirmation history)
 export const demoManager = new PersistentDataManager(DEMO_STORAGE_KEY, () => {
   const initial = generateInitialDemoData();
   return {
@@ -660,6 +787,7 @@ export const demoManager = new PersistentDataManager(DEMO_STORAGE_KEY, () => {
     conexaoParticipants: generateInitialConexaoParticipants(),
     conexaoGoals: generateInitialConexaoGoals(),
     conexaoMonthlyResults: generateInitialConexaoMonthlyResults(),
+    weeklyReports: generateInitialWeeklyReports(),
   };
 });
 
@@ -669,6 +797,7 @@ export const realManager = new PersistentDataManager(REAL_STORAGE_KEY, () => {
     contacts: [],
     interactions: [],
     tasks: [],
+    weeklyReports: [],
     users: [
       {
         uid: 'master-pastorbruno',
@@ -684,7 +813,7 @@ export const realManager = new PersistentDataManager(REAL_STORAGE_KEY, () => {
     ],
     conexaoParticipants: [],
     conexaoGoals: generateInitialConexaoGoals(),
-    conexaoMonthlyResults: generateInitialConexaoMonthlyResults(),
+    conexaoMonthlyResults: generateEmptyConexaoMonthlyResults(),
   };
 });
 
@@ -1196,4 +1325,44 @@ export const CRMService = {
     const manager = isDemo ? demoManager : realManager;
     manager.updateConexaoMonthlyResult(color, monthIndex, updates);
   },
+
+  getWeeklyReports(congregation: CongregationFilter, isDemo: boolean): WeeklyConfirmationReport[] {
+    const manager = isDemo ? demoManager : realManager;
+    return manager.getWeeklyReports(congregation);
+  },
+
+  async saveWeeklyReport(
+    report: WeeklyConfirmationReport,
+    isDemo: boolean
+  ): Promise<WeeklyConfirmationReport> {
+    const manager = isDemo ? demoManager : realManager;
+    const saved = manager.saveWeeklyReport(report);
+
+    if (!isDemo && db) {
+      try {
+        const colRef = collection(db, 'weekly_confirmations');
+        const docRef = doc(colRef, saved.id);
+        await setDoc(docRef, saved);
+      } catch (e) {
+        console.warn('Firestore weekly_confirmations write warning:', e);
+      }
+    }
+
+    return saved;
+  },
+
+  async deleteWeeklyReport(id: string, isDemo: boolean): Promise<void> {
+    const manager = isDemo ? demoManager : realManager;
+    manager.deleteWeeklyReport(id);
+
+    if (!isDemo && db) {
+      try {
+        const docRef = doc(db, 'weekly_confirmations', id);
+        await deleteDoc(docRef);
+      } catch (e) {
+        console.warn('Firestore weekly_confirmations delete warning:', e);
+      }
+    }
+  },
 };
+

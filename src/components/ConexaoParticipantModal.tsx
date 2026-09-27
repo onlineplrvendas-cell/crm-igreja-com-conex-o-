@@ -4,6 +4,7 @@ import {
   ConexaoColor,
   ConexaoRole,
   Congregation,
+  ConexaoFunnelStage,
 } from '../types';
 import {
   CONEXAO_COLORS,
@@ -11,6 +12,7 @@ import {
   CONEXAO_ROLE_META,
 } from '../utils/conexaoConfig';
 import { useCRM } from '../context/CRMContext';
+import { useAuth } from '../context/AuthContext';
 import { maskPhoneBR, cleanPhone } from '../utils/phone';
 import {
   X,
@@ -27,6 +29,8 @@ import {
   Search,
   UserCheck,
   AlertCircle,
+  Layers,
+  Clock,
 } from 'lucide-react';
 
 interface ConexaoParticipantModalProps {
@@ -35,6 +39,7 @@ interface ConexaoParticipantModalProps {
   participantToEdit?: ConexaoParticipant | null;
   defaultColor?: ConexaoColor;
   defaultRole?: ConexaoRole;
+  defaultFunnelStage?: ConexaoFunnelStage;
 }
 
 export const ConexaoParticipantModal: React.FC<ConexaoParticipantModalProps> = ({
@@ -43,6 +48,7 @@ export const ConexaoParticipantModal: React.FC<ConexaoParticipantModalProps> = (
   participantToEdit,
   defaultColor = 'verde',
   defaultRole = 'convidado',
+  defaultFunnelStage = 'novo_contato',
 }) => {
   const {
     contacts,
@@ -51,11 +57,14 @@ export const ConexaoParticipantModal: React.FC<ConexaoParticipantModalProps> = (
     updateConexaoParticipant,
     selectedCongregation,
   } = useCRM();
+  const { currentUser } = useAuth();
+  const isTeamLeader = currentUser?.role === 'lider_equipe';
+  const assignedTeamColor = currentUser?.assignedTeam as ConexaoColor | undefined;
 
   // Form states
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
-  const [color, setColor] = useState<ConexaoColor>(defaultColor);
+  const [color, setColor] = useState<ConexaoColor>(isTeamLeader && assignedTeamColor ? assignedTeamColor : defaultColor);
   const [role, setRole] = useState<ConexaoRole>(defaultRole);
   const [congregation, setCongregation] = useState<Congregation>('Recreio');
   const [baseName, setBaseName] = useState('');
@@ -66,6 +75,12 @@ export const ConexaoParticipantModal: React.FC<ConexaoParticipantModalProps> = (
   const [notes, setNotes] = useState('');
   const [points, setPoints] = useState<number>(50);
   const [linkedContactId, setLinkedContactId] = useState<string>('');
+
+  // Funnel 4 stages & follow-up states
+  const [funnelStage, setFunnelStage] = useState<ConexaoFunnelStage>(defaultFunnelStage || 'novo_contato');
+  const [responsibleName, setResponsibleName] = useState('');
+  const [nextAction, setNextAction] = useState('');
+  const [nextReturnDate, setNextReturnDate] = useState('');
 
   // Quick link contact search
   const [contactSearch, setContactSearch] = useState('');
@@ -81,7 +96,7 @@ export const ConexaoParticipantModal: React.FC<ConexaoParticipantModalProps> = (
     if (participantToEdit) {
       setName(participantToEdit.name);
       setPhone(participantToEdit.phone);
-      setColor(participantToEdit.color);
+      setColor(isTeamLeader && assignedTeamColor ? assignedTeamColor : participantToEdit.color);
       setRole(participantToEdit.role);
       setCongregation(participantToEdit.congregation);
       setBaseName(participantToEdit.baseName || '');
@@ -92,10 +107,14 @@ export const ConexaoParticipantModal: React.FC<ConexaoParticipantModalProps> = (
       setNotes(participantToEdit.notes || '');
       setPoints(participantToEdit.points ?? 50);
       setLinkedContactId(participantToEdit.contactId || '');
+      setFunnelStage(participantToEdit.funnelStage || (participantToEdit.role === 'convidado' ? 'novo_contato' : 'integrado'));
+      setResponsibleName(participantToEdit.responsibleName || participantToEdit.baseLeaderName || participantToEdit.invitedByName || '');
+      setNextAction(participantToEdit.nextAction || '');
+      setNextReturnDate(participantToEdit.nextReturnDate || '');
     } else {
       setName('');
       setPhone('');
-      setColor(defaultColor);
+      setColor(isTeamLeader && assignedTeamColor ? assignedTeamColor : defaultColor);
       setRole(defaultRole);
       setCongregation(
         selectedCongregation !== 'all' ? selectedCongregation : 'Recreio'
@@ -108,11 +127,15 @@ export const ConexaoParticipantModal: React.FC<ConexaoParticipantModalProps> = (
       setNotes('');
       setPoints(defaultRole === 'convidado' ? 50 : 100);
       setLinkedContactId('');
+      setFunnelStage(defaultFunnelStage || (defaultRole === 'convidado' ? 'novo_contato' : 'integrado'));
+      setResponsibleName(currentUser?.name || '');
+      setNextAction('');
+      setNextReturnDate('');
     }
     setError(null);
     setShowContactPicker(false);
     setContactSearch('');
-  }, [isOpen, participantToEdit, defaultColor, defaultRole, selectedCongregation]);
+  }, [isOpen, participantToEdit, defaultColor, defaultRole, defaultFunnelStage, selectedCongregation, currentUser]);
 
   // Existing bases for the selected color to make it quick to pick
   const colorBases = useMemo(() => {
@@ -252,6 +275,10 @@ export const ConexaoParticipantModal: React.FC<ConexaoParticipantModalProps> = (
           notes: notes.trim() || undefined,
           points: Number(points) || 50,
           contactId: finalContactId || undefined,
+          funnelStage,
+          responsibleName: responsibleName.trim() || undefined,
+          nextAction: nextAction.trim() || undefined,
+          nextReturnDate: nextReturnDate.trim() || undefined,
         });
       } else {
         await addConexaoParticipant({
@@ -269,6 +296,10 @@ export const ConexaoParticipantModal: React.FC<ConexaoParticipantModalProps> = (
           notes: notes.trim() || undefined,
           points: Number(points) || (role === 'convidado' ? 50 : 100),
           contactId: finalContactId || undefined,
+          funnelStage,
+          responsibleName: responsibleName.trim() || undefined,
+          nextAction: nextAction.trim() || undefined,
+          nextReturnDate: nextReturnDate.trim() || undefined,
         });
       }
 
@@ -331,40 +362,53 @@ export const ConexaoParticipantModal: React.FC<ConexaoParticipantModalProps> = (
         )}
 
         <form onSubmit={handleSubmit} className="space-y-5">
-          {/* Color Selection (6 distinct colors) */}
+          {/* Color Selection */}
           <div>
             <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-400 mb-2">
               1. Cor da Equipe
             </label>
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2">
-              {CONEXAO_COLORS.map(cId => {
-                const cfg = CONEXAO_COLOR_CONFIGS[cId];
-                const isSelected = color === cId;
-                return (
-                  <button
-                    key={cId}
-                    type="button"
-                    onClick={() => setColor(cId)}
-                    className={`flex flex-col items-center justify-center p-2.5 rounded-xl border text-center transition-all ${
-                      isSelected
-                        ? `bg-zinc-900 border-2 ${cfg.glowClass}`
-                        : 'bg-[#111111] border-[#222222] hover:border-[#333333]'
-                    }`}
-                    style={{
-                      borderColor: isSelected ? cfg.hex : undefined,
-                    }}
-                  >
-                    <span
-                      className="w-5 h-5 rounded-full mb-1.5 shadow-md flex items-center justify-center"
-                      style={{ backgroundColor: cfg.hex }}
+            {isTeamLeader && assignedTeamColor ? (
+              <div className="flex items-center gap-2.5 p-3 rounded-xl border border-white/20 bg-zinc-900">
+                <span
+                  className="w-4 h-4 rounded-full shadow-md"
+                  style={{ backgroundColor: CONEXAO_COLOR_CONFIGS[assignedTeamColor].hex }}
+                />
+                <span className="text-xs font-bold text-white uppercase">
+                  {CONEXAO_COLOR_CONFIGS[assignedTeamColor].displayName}
+                </span>
+                <span className="text-[10px] text-zinc-400 ml-auto">(Sua equipe designada)</span>
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2">
+                {CONEXAO_COLORS.map(cId => {
+                  const cfg = CONEXAO_COLOR_CONFIGS[cId];
+                  const isSelected = color === cId;
+                  return (
+                    <button
+                      key={cId}
+                      type="button"
+                      onClick={() => setColor(cId)}
+                      className={`flex flex-col items-center justify-center p-2.5 rounded-xl border text-center transition-all cursor-pointer ${
+                        isSelected
+                          ? `bg-zinc-900 border-2 ${cfg.glowClass}`
+                          : 'bg-[#111111] border-[#222222] hover:border-[#333333]'
+                      }`}
+                      style={{
+                        borderColor: isSelected ? cfg.hex : undefined,
+                      }}
                     >
-                      {isSelected && <CheckCircle2 className="w-3.5 h-3.5 text-black stroke-[3]" />}
-                    </span>
-                    <span className="text-xs font-bold text-white capitalize">{cfg.name}</span>
-                  </button>
-                );
-              })}
-            </div>
+                      <span
+                        className="w-5 h-5 rounded-full mb-1.5 shadow-md flex items-center justify-center"
+                        style={{ backgroundColor: cfg.hex }}
+                      >
+                        {isSelected && <CheckCircle2 className="w-3.5 h-3.5 text-black stroke-[3]" />}
+                      </span>
+                      <span className="text-xs font-bold text-white capitalize">{cfg.name}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </div>
 
           {/* Role Selection */}
@@ -705,10 +749,85 @@ export const ConexaoParticipantModal: React.FC<ConexaoParticipantModalProps> = (
             </div>
           )}
 
+          {/* Funil do Conexão Jovem (4 Etapas Principais) */}
+          <div className="p-4 bg-[#141417] border border-[#272730] rounded-xl space-y-3.5">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-1.5">
+                <Layers className="w-3.5 h-3.5 text-amber-400" />
+                Funil de Acompanhamento (4 Etapas Principais)
+              </span>
+              <span className="text-[10px] text-zinc-400 font-mono">Conexão Jovem</span>
+            </div>
+
+            {/* 4 stage selector buttons */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+              {[
+                { id: 'novo_contato', label: 'Novo contato', color: 'border-sky-500 bg-sky-500/10 text-sky-300' },
+                { id: 'em_contato', label: 'Em contato', color: 'border-amber-500 bg-amber-500/10 text-amber-300' },
+                { id: 'em_acompanhamento', label: 'Em acompanhamento', color: 'border-indigo-500 bg-indigo-500/10 text-indigo-300' },
+                { id: 'integrado', label: 'Integrado', color: 'border-emerald-500 bg-emerald-500/10 text-emerald-300' },
+              ].map(stg => (
+                <button
+                  key={stg.id}
+                  type="button"
+                  onClick={() => setFunnelStage(stg.id as ConexaoFunnelStage)}
+                  className={`p-2 rounded-lg border text-center transition-all ${
+                    funnelStage === stg.id
+                      ? `${stg.color} ring-1 ring-white/30 font-bold shadow`
+                      : 'bg-[#18181B] border-zinc-800 text-zinc-400 hover:text-zinc-200'
+                  }`}
+                >
+                  <p className="text-xs font-bold">{stg.label}</p>
+                </button>
+              ))}
+            </div>
+
+            {/* Follow-up Fields */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1">
+              <div>
+                <label className="block text-zinc-400 text-[11px] font-medium mb-1">
+                  Responsável pelo Contato
+                </label>
+                <input
+                  type="text"
+                  placeholder="Nome do líder ou voluntário"
+                  value={responsibleName}
+                  onChange={e => setResponsibleName(e.target.value)}
+                  className="w-full bg-[#18181B] border border-zinc-700/80 rounded-lg px-2.5 py-1.5 text-white placeholder-zinc-500 text-xs focus:outline-none focus:border-amber-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-zinc-400 text-[11px] font-medium mb-1">
+                  Próxima Ação
+                </label>
+                <input
+                  type="text"
+                  placeholder="Ex: Ligar na sexta-feira"
+                  value={nextAction}
+                  onChange={e => setNextAction(e.target.value)}
+                  className="w-full bg-[#18181B] border border-zinc-700/80 rounded-lg px-2.5 py-1.5 text-white placeholder-zinc-500 text-xs focus:outline-none focus:border-amber-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-zinc-400 text-[11px] font-medium mb-1">
+                  Próxima Data de Retorno
+                </label>
+                <input
+                  type="date"
+                  value={nextReturnDate}
+                  onChange={e => setNextReturnDate(e.target.value)}
+                  className="w-full bg-[#18181B] border border-zinc-700/80 rounded-lg px-2.5 py-1.5 text-white text-xs focus:outline-none focus:border-amber-500"
+                />
+              </div>
+            </div>
+          </div>
+
           {/* Notes */}
           <div>
             <label className="block text-xs font-medium text-zinc-300 mb-1">
-              Observações / Acompanhamento
+              Observações / Detalhes Adicionais
             </label>
             <input
               type="text"

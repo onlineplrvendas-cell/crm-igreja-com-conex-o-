@@ -170,7 +170,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onOpenSetupInstructions })
           <button
             type="submit"
             disabled={isLoading}
-            className="w-full py-2.5 px-4 bg-white text-black font-semibold text-sm rounded-lg hover:bg-neutral-200 transition-colors shadow-sm disabled:opacity-50 flex items-center justify-center gap-2 mt-2"
+            className="w-full py-2.5 px-4 bg-white text-black font-semibold text-sm rounded-lg hover:bg-neutral-200 transition-colors shadow-sm disabled:opacity-50 flex items-center justify-center gap-2 mt-2 cursor-pointer"
           >
             <span>{isLoading ? 'Entrando...' : 'Entrar no Painel'}</span>
             <ArrowRight className="w-4 h-4" />
@@ -180,68 +180,189 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onOpenSetupInstructions })
         {/* Divider */}
         <div className="relative flex items-center justify-center">
           <div className="border-t border-[#222222] w-full" />
-          <span className="bg-[#0B0B0B] px-3 text-[11px] uppercase tracking-wider text-[#666666] relative font-medium">
-            ou
+          <span className="bg-[#0B0B0B] px-3 text-[10px] uppercase tracking-wider text-[#666666] relative font-bold">
+            Simulador de Perfis & Permissões
           </span>
         </div>
 
-        {/* Demo Mode ON / OFF Switch Box */}
-        <div className="p-3.5 bg-[#141414] border border-[#262626] rounded-xl space-y-3">
+        {/* Quick Roles & Permissions Selector */}
+        <div className="space-y-2.5 bg-[#111111] p-3 rounded-xl border border-[#222222]">
           <div className="flex items-center justify-between">
-            <div className="space-y-0.5">
-              <span className="text-xs font-semibold text-white flex items-center gap-1.5">
-                <Sparkles className="w-3.5 h-3.5 text-white" />
-                <span>Modo Demonstração</span>
-              </span>
-              <span className="text-[11px] text-[#888888] block">
-                {isDemoMode ? 'LIGADO (30 contatos de teste)' : 'DESLIGADO (Ambiente Firebase real)'}
-              </span>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <span className={`text-[10px] uppercase font-bold tracking-wider ${isDemoMode ? 'text-white' : 'text-[#666666]'}`}>
-                {isDemoMode ? 'ON' : 'OFF'}
-              </span>
-              <button
-                type="button"
-                onClick={toggleDemoMode}
-                className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
-                  isDemoMode ? 'bg-white' : 'bg-[#262626]'
-                }`}
-                role="switch"
-                aria-checked={isDemoMode}
-                title={isDemoMode ? 'Desligar modo demo' : 'Ligar modo demo'}
-              >
-                <span
-                  className={`pointer-events-none inline-block h-5 w-5 transform rounded-full shadow-lg transition duration-200 ease-in-out ${
-                    isDemoMode ? 'translate-x-5 bg-black' : 'translate-x-0 bg-[#666666]'
-                  }`}
-                />
-              </button>
-            </div>
+            <span className="text-[11px] font-bold text-zinc-300 uppercase tracking-wider flex items-center gap-1.5">
+              <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+              <span>Entrar com Perfil de Teste:</span>
+            </span>
+            <span className="text-[10px] text-zinc-500">1 clique</span>
           </div>
 
-          {isDemoMode ? (
+          <div className="space-y-1.5 max-h-56 overflow-y-auto pr-1">
+            {/* Master */}
             <button
               type="button"
-              onClick={() => enterDemoMode('admin')}
-              className="w-full py-2 px-3 bg-white text-black font-semibold text-xs rounded-lg hover:bg-neutral-200 transition-colors flex items-center justify-center gap-1.5"
+              onClick={() => enterDemoMode('admin-1')}
+              className="w-full p-2 bg-[#171717] hover:bg-[#202020] border border-amber-500/30 rounded-lg text-left transition-colors flex items-center justify-between group"
             >
-              <span>Acessar Painel no Modo Demo</span>
-              <ArrowRight className="w-3.5 h-3.5" />
+              <div>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs font-bold text-amber-300">Pr. Bruno Bitencourt</span>
+                  <span className="text-[9px] font-bold px-1.5 py-0.2 bg-amber-500/20 text-amber-300 rounded border border-amber-500/30 uppercase">Master Geral</span>
+                </div>
+                <p className="text-[10px] text-zinc-400">Acesso completo: 3 congregações, 3 famílias, todas as cores</p>
+              </div>
+              <ArrowRight className="w-3.5 h-3.5 text-zinc-500 group-hover:text-white shrink-0 ml-2" />
             </button>
-          ) : (
-            <p className="text-[11px] text-[#777777] bg-[#0E0E0E] p-2 rounded border border-[#1F1F1F]">
-              Com o modo demo desligado, utilize as credenciais de e-mail e senha da sua congregação para entrar.
-            </p>
-          )}
+
+            {/* Curicica Coordenação */}
+            <button
+              type="button"
+              onClick={() => enterDemoMode('admin-curicica')}
+              className="w-full p-2 bg-[#171717] hover:bg-[#202020] border border-[#2A2A2A] rounded-lg text-left transition-colors flex items-center justify-between group"
+            >
+              <div>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs font-bold text-white">Pr. Marcos Silveira</span>
+                  <span className="text-[9px] font-bold px-1.5 py-0.2 bg-zinc-800 text-zinc-300 rounded border border-zinc-700 uppercase">Coord. Curicica</span>
+                </div>
+                <p className="text-[10px] text-zinc-400">Administra Curicica: vê e gerencia as 3 Famílias</p>
+              </div>
+              <ArrowRight className="w-3.5 h-3.5 text-zinc-500 group-hover:text-white shrink-0 ml-2" />
+            </button>
+
+            {/* Curicica Líder Família 1 */}
+            <button
+              type="button"
+              onClick={() => enterDemoMode('lider-familia-1')}
+              className="w-full p-2 bg-[#171717] hover:bg-[#202020] border border-emerald-900/40 rounded-lg text-left transition-colors flex items-center justify-between group"
+            >
+              <div>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs font-bold text-emerald-300">Priscila Ramos</span>
+                  <span className="text-[9px] font-bold px-1.5 py-0.2 bg-emerald-950 text-emerald-400 rounded border border-emerald-800/50 uppercase">Líder Família 1</span>
+                </div>
+                <p className="text-[10px] text-zinc-400">Restrita à Família 1 (não vê Família 2 nem Família 3)</p>
+              </div>
+              <ArrowRight className="w-3.5 h-3.5 text-zinc-500 group-hover:text-white shrink-0 ml-2" />
+            </button>
+
+            {/* Curicica Líder Família 2 */}
+            <button
+              type="button"
+              onClick={() => enterDemoMode('lider-familia-2')}
+              className="w-full p-2 bg-[#171717] hover:bg-[#202020] border border-emerald-900/40 rounded-lg text-left transition-colors flex items-center justify-between group"
+            >
+              <div>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs font-bold text-emerald-300">Carlos Eduardo</span>
+                  <span className="text-[9px] font-bold px-1.5 py-0.2 bg-emerald-950 text-emerald-400 rounded border border-emerald-800/50 uppercase">Líder Família 2</span>
+                </div>
+                <p className="text-[10px] text-zinc-400">Restrito à Família 2 (não vê Família 1 nem Família 3)</p>
+              </div>
+              <ArrowRight className="w-3.5 h-3.5 text-zinc-500 group-hover:text-white shrink-0 ml-2" />
+            </button>
+
+            {/* Curicica Líder Família 3 */}
+            <button
+              type="button"
+              onClick={() => enterDemoMode('lider-familia-3')}
+              className="w-full p-2 bg-[#171717] hover:bg-[#202020] border border-emerald-900/40 rounded-lg text-left transition-colors flex items-center justify-between group"
+            >
+              <div>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs font-bold text-emerald-300">Vanessa Mello</span>
+                  <span className="text-[9px] font-bold px-1.5 py-0.2 bg-emerald-950 text-emerald-400 rounded border border-emerald-800/50 uppercase">Líder Família 3</span>
+                </div>
+                <p className="text-[10px] text-zinc-400">Restrita à Família 3 (não vê Família 1 nem Família 2)</p>
+              </div>
+              <ArrowRight className="w-3.5 h-3.5 text-zinc-500 group-hover:text-white shrink-0 ml-2" />
+            </button>
+
+            {/* Conexão Líder Geral */}
+            <button
+              type="button"
+              onClick={() => enterDemoMode('lider-conexao-geral')}
+              className="w-full p-2 bg-[#171717] hover:bg-[#202020] border border-amber-900/30 rounded-lg text-left transition-colors flex items-center justify-between group"
+            >
+              <div>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs font-bold text-amber-300">Lucas Martins</span>
+                  <span className="text-[9px] font-bold px-1.5 py-0.2 bg-amber-950 text-amber-300 rounded border border-amber-800 uppercase">Líder Geral Conexão</span>
+                </div>
+                <p className="text-[10px] text-zinc-400">Acesso a todas as 6 cores e visão geral comparativa</p>
+              </div>
+              <ArrowRight className="w-3.5 h-3.5 text-zinc-500 group-hover:text-white shrink-0 ml-2" />
+            </button>
+
+            {/* Conexão Líder Equipe Azul */}
+            <button
+              type="button"
+              onClick={() => enterDemoMode('lider-equipe-azul')}
+              className="w-full p-2 bg-[#171717] hover:bg-[#202020] border border-blue-900/40 rounded-lg text-left transition-colors flex items-center justify-between group"
+            >
+              <div>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs font-bold text-blue-300">Thiago Nogueira</span>
+                  <span className="text-[9px] font-bold px-1.5 py-0.2 bg-blue-950 text-blue-400 rounded border border-blue-800/60 uppercase">Líder Equipe Azul</span>
+                </div>
+                <p className="text-[10px] text-zinc-400">Restrito à Equipe Azul (sem Amarelo, Verde ou Vermelho)</p>
+              </div>
+              <ArrowRight className="w-3.5 h-3.5 text-zinc-500 group-hover:text-white shrink-0 ml-2" />
+            </button>
+
+            {/* Conexão Líder Equipe Verde */}
+            <button
+              type="button"
+              onClick={() => enterDemoMode('lider-equipe-verde')}
+              className="w-full p-2 bg-[#171717] hover:bg-[#202020] border border-emerald-900/40 rounded-lg text-left transition-colors flex items-center justify-between group"
+            >
+              <div>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs font-bold text-emerald-300">Matheus Lima Rocha</span>
+                  <span className="text-[9px] font-bold px-1.5 py-0.2 bg-emerald-950 text-emerald-400 rounded border border-emerald-800/60 uppercase">Líder Equipe Verde</span>
+                </div>
+                <p className="text-[10px] text-zinc-400">Restrito à Equipe Verde (sem Azul, Amarelo ou Vermelho)</p>
+              </div>
+              <ArrowRight className="w-3.5 h-3.5 text-zinc-500 group-hover:text-white shrink-0 ml-2" />
+            </button>
+
+            {/* Equipe Recreio */}
+            <button
+              type="button"
+              onClick={() => enterDemoMode('equipe-recreio')}
+              className="w-full p-2 bg-[#171717] hover:bg-[#202020] border border-[#262626] rounded-lg text-left transition-colors flex items-center justify-between group"
+            >
+              <div>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs font-bold text-white">Mariana Souza</span>
+                  <span className="text-[9px] font-bold px-1.5 py-0.2 bg-zinc-800 text-zinc-300 rounded border border-zinc-700 uppercase">Equipe Recreio</span>
+                </div>
+                <p className="text-[10px] text-zinc-400">Acesso restrito exclusivamente ao Recreio</p>
+              </div>
+              <ArrowRight className="w-3.5 h-3.5 text-zinc-500 group-hover:text-white shrink-0 ml-2" />
+            </button>
+
+            {/* Equipe Guaratiba */}
+            <button
+              type="button"
+              onClick={() => enterDemoMode('equipe-guaratiba')}
+              className="w-full p-2 bg-[#171717] hover:bg-[#202020] border border-[#262626] rounded-lg text-left transition-colors flex items-center justify-between group"
+            >
+              <div>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs font-bold text-white">Camila Duarte</span>
+                  <span className="text-[9px] font-bold px-1.5 py-0.2 bg-zinc-800 text-zinc-300 rounded border border-zinc-700 uppercase">Equipe Guaratiba</span>
+                </div>
+                <p className="text-[10px] text-zinc-400">Acesso restrito exclusivamente a Guaratiba</p>
+              </div>
+              <ArrowRight className="w-3.5 h-3.5 text-zinc-500 group-hover:text-white shrink-0 ml-2" />
+            </button>
+          </div>
         </div>
 
         {/* Footer info & help */}
         <div className="pt-2 border-t border-[#1C1C1C] flex items-center justify-between text-[11px] text-[#777777]">
           <div className="flex items-center gap-1.5">
             <ShieldCheck className="w-3.5 h-3.5" />
-            <span>Acesso Restrito à Equipe</span>
+            <span>Sistema com Permissões Reais</span>
           </div>
           <button
             type="button"
